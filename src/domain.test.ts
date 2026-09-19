@@ -1,0 +1,9 @@
+import { describe, expect, it } from 'vitest'
+import { asYen, fromMinor, money, profit, toMinor, type Session } from './domain'
+
+const base: Session = { id: 's1', venue: 'Test', location: 'Las Vegas', game: 'ライブ', stakes: '$1/$3', currency: 'USD', startedAt: '2026-09-01T00:00:00Z', endedAt: '2026-09-01T04:00:00Z', buyIn: 30000, rebuy: 10000, cashOut: 50000, tips: 1000, note: '', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T04:00:00Z' }
+describe('currency accounting', () => {
+  it('keeps USD cents and JPY yen as integers', () => { expect(toMinor(300.25, 'USD')).toBe(30025); expect(fromMinor(30025, 'USD')).toBe(300.25); expect(toMinor(300, 'JPY')).toBe(300) })
+  it('subtracts buy-ins, rebuys and tips', () => { expect(profit(base)).toBe(9000); expect(money(profit(base), 'USD', true)).toBe('+$90.00') })
+  it('uses the saved rate for a stable JPY value', () => { const rate = { rate: 150, date: '2026-09-01', fetchedAt: '2026-09-01T10:00:00Z', provider: 'Test' }; expect(asYen(profit(base), 'USD', rate)).toBe(13500); expect(asYen(profit(base), 'USD')).toBeNull() })
+})

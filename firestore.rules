@@ -1,0 +1,35 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function owner(uid) { return request.auth != null && request.auth.uid == uid; }
+    function validSession(id) {
+      let d = request.resource.data;
+      return d.id == id
+        && d.venue is string && d.venue.size() > 0 && d.venue.size() <= 120
+        && d.currency in ['JPY','USD','EUR','GBP','HKD','KRW','PHP','VND','THB','TWD']
+        && d.game in ['ライブ','オンライン']
+        && d.startedAt is string && d.startedAt.size() <= 40
+        && d.buyIn is int && d.buyIn >= 0
+        && d.rebuy is int && d.rebuy >= 0
+        && d.cashOut is int && d.cashOut >= 0
+        && d.tips is int && d.tips >= 0
+        && d.note is string && d.note.size() <= 4000;
+    }
+    function validPlayer(id) {
+      let d = request.resource.data;
+      return d.id == id
+        && d.name is string && d.name.size() > 0 && d.name.size() <= 120
+        && d.venue is string && d.venue.size() <= 120
+        && d.tags is list && d.tags.size() <= 20
+        && d.note is string && d.note.size() <= 4000;
+    }
+    match /users/{uid}/sessions/{id} {
+      allow get, list, delete: if owner(uid);
+      allow create, update: if owner(uid) && validSession(id);
+    }
+    match /users/{uid}/players/{id} {
+      allow get, list, delete: if owner(uid);
+      allow create, update: if owner(uid) && validPlayer(id);
+    }
+  }
+}
