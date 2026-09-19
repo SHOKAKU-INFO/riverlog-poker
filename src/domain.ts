@@ -5,7 +5,7 @@ const decimals: Record<Currency, number> = { JPY: 0, USD: 2, EUR: 2, GBP: 2, HKD
 export interface Rate { rate: number; date: string; fetchedAt: string; provider: string; stale?: boolean }
 export interface Session {
   id: string; venue: string; location: string; game: 'ライブ' | 'オンライン'; stakes: string; currency: Currency
-  startedAt: string; endedAt?: string; buyIn: number; rebuy: number; cashOut: number; tips: number
+  startedAt: string; localDate?: string; endedAt?: string; buyIn: number; rebuy: number; cashOut: number; tips: number
   note: string; rate?: Rate; createdAt: string; updatedAt: string
 }
 export interface Player { id: string; name: string; venue: string; tags: string[]; note: string; updatedAt: string }

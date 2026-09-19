@@ -24,7 +24,7 @@ jobs:
       - run: npm run test:rules:emu
       - run: npm run build
   deploy-firestore:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GCP_FIREBASE_DEPLOY_SERVICE_ACCOUNT != '' && vars.FIREBASE_PROJECT_ID != ''
     needs: verify
     runs-on: ubuntu-latest
     permissions:
