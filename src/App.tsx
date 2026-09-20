@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, CircleHelp, Clock3, CloudOff, Download, Globe2, LayoutDashboard, LogOut, Menu, MoreHorizontal, Plus, Search, Settings2, ShieldCheck, Spade, Tag, Trash2, UserRound, Users, Wallet, X } from 'lucide-react'
+import { Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3, CloudOff, Download, Globe2, LayoutDashboard, LogOut, MapPin, Menu, MoreHorizontal, Plus, Search, Settings2, ShieldCheck, Spade, Tag, Trash2, UserRound, Users, Wallet, X } from 'lucide-react'
 import type { User } from 'firebase/auth'
 import { asYen, calendarDayTotal, currencies, dateLabel, duration, fromMinor, hours, money, profit, samplePlayers, sampleSessions, shortDate, toMinor, type Currency, type Player, type Rate, type Session } from './domain'
 import { deletePlayerRemote, deleteSessionRemote, firebaseConfigured, loadRemote, login, logout, savePlayerRemote, saveSessionRemote, watchUser } from './firebase'
@@ -142,7 +142,7 @@ function App() {
       </div>
     </main>
     <nav className="mobile-nav" aria-label="モバイルメニュー">{nav.slice(0, 5).map(item => <button key={item.page} className={page === item.page ? 'active' : ''} onClick={() => navigate(item.page)}><item.icon size={21} /><span>{item.page === 'overview' ? 'ホーム' : item.page === 'players' ? 'メモ' : item.label}</span></button>)}</nav>
-    {sessionModal && <SessionForm initial={sessionModal === 'new' ? undefined : sessionModal} rate={rates} onClose={() => setSessionModal(null)} onSave={saveSession} />}
+    {sessionModal && <SessionForm initial={sessionModal === 'new' ? undefined : sessionModal} sessions={sessions} rate={rates} onClose={() => setSessionModal(null)} onSave={saveSession} />}
     {playerModal && <PlayerForm initial={playerModal === 'new' ? undefined : playerModal} onClose={() => setPlayerModal(null)} onSave={savePlayer} onDelete={removePlayer} />}
     {selectedSession && <SessionDetail session={selectedSession} currentRate={rates[selectedSession.currency]} now={now} onClose={() => setSelectedSession(null)} onEdit={() => { setSessionModal(selectedSession); setSelectedSession(null) }} onDelete={() => removeSession(selectedSession.id)} onFinish={() => { setSessionModal(selectedSession); setSelectedSession(null) }} />}
   </div>
@@ -153,12 +153,62 @@ function SectionHeading({ label, title, action, onAction }: { label: string; tit
 function Empty({ message }: { message: string }) { return <div className="empty"><Spade size={27} /><p>{message}</p></div> }
 function SessionRow({ session, onClick }: { session: Session; onClick: () => void }) { const result = profit(session); const yen = asYen(result, session.currency, session.rate); return <button className="session-row" onClick={onClick}><div className={`result-icon ${!session.endedAt ? 'running' : result < 0 ? 'loss' : ''}`}>{!session.endedAt ? <Clock3 size={19} /> : result < 0 ? <ArrowDownRight size={20} /> : <ArrowUpRight size={20} />}</div><div className="session-main"><strong>{session.venue}</strong><span>{session.stakes} <span className="separator">·</span> {dateLabel((session.localDate || session.startedAt.slice(0, 10)) + 'T12:00:00')}</span></div><div className="session-extra"><span>{session.game}</span><small>{session.endedAt ? duration(session) : '進行中'}</small></div><div className={`session-result ${result < 0 ? 'negative' : 'positive'}`}><strong>{session.endedAt ? money(result, session.currency, true) : '進行中'}</strong><small>{session.endedAt ? formatYen(yen, true) : 'タップして開く'}</small></div><ChevronRight size={17} className="row-chevron" /></button> }
 
-function SessionForm({ initial, rate, onClose, onSave }: { initial?: Session; rate: Partial<Record<Currency, Rate>>; onClose: () => void; onSave: (session: Session) => void }) {
+type EntryOption = { label: string; secondary?: string }
+const stakeChoices = ['1/2', '1/3', '2/5', '5/10']
+
+function savedVenueOptions(sessions: Session[]): EntryOption[] {
+  const seen = new Set<string>()
+  return [...sessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).flatMap(session => {
+    const label = session.venue.trim()
+    const key = label.toLocaleLowerCase()
+    if (!label || seen.has(key)) return []
+    seen.add(key)
+    return [{ label, secondary: session.location.trim() || undefined }]
+  })
+}
+
+function savedLocationOptions(sessions: Session[]): EntryOption[] {
+  const seen = new Set<string>()
+  return [...sessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).flatMap(session => {
+    const label = session.location.trim()
+    const key = label.toLocaleLowerCase()
+    if (!label || seen.has(key)) return []
+    seen.add(key)
+    return [{ label }]
+  })
+}
+
+function EntryDrawer({ title, value, options, onChoose, onClose, allowClear = false }: { title: string; value: string; options: EntryOption[]; onChoose: (value: string, option?: EntryOption) => void; onClose: () => void; allowClear?: boolean }) {
+  const [query, setQuery] = useState('')
+  useEffect(() => { const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }; window.addEventListener('keydown', onKeyDown); return () => window.removeEventListener('keydown', onKeyDown) }, [onClose])
+  const input = query.trim()
+  const filtered = options.filter(option => `${option.label} ${option.secondary || ''}`.toLocaleLowerCase().includes(input.toLocaleLowerCase()))
+  const exact = options.some(option => option.label.toLocaleLowerCase() === input.toLocaleLowerCase())
+  return <div className="entry-drawer-backdrop" onMouseDown={onClose}>
+    <div className="entry-drawer" role="dialog" aria-modal="true" aria-label={`${title}を選択`} onMouseDown={event => event.stopPropagation()}>
+      <div className="entry-drawer-handle" />
+      <div className="entry-drawer-head"><div><small>QUICK PICK</small><h3>{title}を選択</h3></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる"><X size={21} /></button></div>
+      <label className="entry-drawer-search">検索・新しく入力<input value={query} onChange={event => setQuery(event.target.value)} maxLength={120} placeholder={`${title}を入力`} /></label>
+      {input && !exact && <button type="button" className="entry-drawer-create" onClick={() => onChoose(input)}><Plus size={17} /><span>「{input}」を新しく使う</span><ChevronRight size={17} /></button>}
+      <div className="entry-drawer-list">
+        {filtered.length > 0 && <div className="entry-drawer-caption">以前の記録から選択</div>}
+        {filtered.map(option => <button type="button" key={option.label} className="entry-drawer-option" onClick={() => onChoose(option.label, option)}><MapPin size={17} /><span><strong>{option.label}</strong>{option.secondary && <small>{option.secondary}</small>}</span>{option.label === value ? <Check size={17} /> : <ChevronRight size={16} />}</button>)}
+        {!filtered.length && !input && <p className="entry-drawer-empty">まだ候補がありません。上の欄に入力すると、次回から選べます。</p>}
+        {!filtered.length && input && <p className="entry-drawer-empty">一致する候補はありません。</p>}
+      </div>
+      {allowClear && value && <button type="button" className="entry-drawer-clear" onClick={() => onChoose('')}>入力を消す</button>}
+    </div>
+  </div>
+}
+
+function SessionForm({ initial, sessions, rate, onClose, onSave }: { initial?: Session; sessions: Session[]; rate: Partial<Record<Currency, Rate>>; onClose: () => void; onSave: (session: Session) => void }) {
   const [venue, setVenue] = useState(initial?.venue || '')
   const [location, setLocation] = useState(initial?.location || '')
   const [game, setGame] = useState<'ライブ' | 'オンライン'>(initial?.game || 'ライブ')
   const [stakes, setStakes] = useState(initial?.stakes || '')
+  const [customStakes, setCustomStakes] = useState(Boolean(initial?.stakes && !stakeChoices.includes(initial.stakes)))
   const [currency, setCurrency] = useState<Currency>(initial?.currency || 'USD')
+  const [picker, setPicker] = useState<'venue' | 'location' | null>(null)
   const [buyIn, setBuyIn] = useState(initial ? String(fromMinor(initial.buyIn, initial.currency)) : '')
   const [rebuy, setRebuy] = useState(initial ? String(fromMinor(initial.rebuy, initial.currency)) : '0')
   const [cashOut, setCashOut] = useState(initial ? String(fromMinor(initial.cashOut, initial.currency)) : '')
@@ -166,8 +216,42 @@ function SessionForm({ initial, rate, onClose, onSave }: { initial?: Session; ra
   const [note, setNote] = useState(initial?.note || '')
   const [finish, setFinish] = useState(Boolean(initial?.endedAt))
   const [startedAt, setStartedAt] = useState(initial ? localInputDate(new Date(initial.startedAt)) : localInputDate(new Date()))
-  const submit = (event: React.FormEvent) => { event.preventDefault(); if (!venue.trim() || !buyIn) return; const now = new Date().toISOString(); onSave({ id: initial?.id || crypto.randomUUID(), venue: venue.trim(), location: location.trim(), game, stakes: stakes.trim(), currency, startedAt: new Date(startedAt).toISOString(), localDate: startedAt.slice(0, 10), endedAt: finish ? initial?.endedAt || now : undefined, buyIn: toMinor(Number(buyIn), currency), rebuy: toMinor(Number(rebuy || 0), currency), cashOut: toMinor(Number(cashOut || 0), currency), tips: toMinor(Number(tips || 0), currency), note: note.trim(), rate: finish ? initial?.rate || rate[currency] : initial?.rate, createdAt: initial?.createdAt || now, updatedAt: now }) }
-  return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal" onMouseDown={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={initial ? 'セッションを編集' : '新しいセッション'}><div className="modal-header"><div><div className="eyebrow">SESSION ENTRY</div><h2>{initial ? 'セッションを編集' : '新しいセッション'}</h2></div><button className="icon-button" onClick={onClose} aria-label="閉じる"><X size={21} /></button></div><form onSubmit={submit}><div className="form-grid"><label className="field">会場名 <input required value={venue} onChange={e => setVenue(e.target.value)} placeholder="例: Bellagio" /></label><label className="field">都市 / 場所 <input value={location} onChange={e => setLocation(e.target.value)} placeholder="例: Las Vegas" /></label><label className="field">ゲーム <select value={game} onChange={e => setGame(e.target.value as 'ライブ' | 'オンライン')}><option>ライブ</option><option>オンライン</option></select></label><label className="field">ステークス <input value={stakes} onChange={e => setStakes(e.target.value)} placeholder="例: $1 / $3" /></label><label className="field">通貨 <select value={currency} disabled={Boolean(initial)} onChange={e => setCurrency(e.target.value as Currency)}>{currencies.map(c => <option key={c}>{c}</option>)}</select></label><label className="field">開始日時 <input type="datetime-local" value={startedAt} onChange={e => setStartedAt(e.target.value)} required /></label><label className="field">初回バイイン <input type="number" min="0" step="any" required value={buyIn} onChange={e => setBuyIn(e.target.value)} placeholder="300" /></label><label className="field">リバイ・追加購入 <input type="number" min="0" step="any" value={rebuy} onChange={e => setRebuy(e.target.value)} /></label></div><div className="form-divider" /><label className="toggle-row"><input type="checkbox" checked={finish} onChange={e => setFinish(e.target.checked)} /><span><strong>セッションを終了する</strong><small>キャッシュアウトを入力して収支を確定</small></span></label>{finish && <div className="form-grid"><label className="field">キャッシュアウト <input type="number" min="0" step="any" required value={cashOut} onChange={e => setCashOut(e.target.value)} placeholder="400" /></label><label className="field">チップ <input type="number" min="0" step="any" value={tips} onChange={e => setTips(e.target.value)} /></label></div>}<label className="field full">セッションメモ <textarea value={note} onChange={e => setNote(e.target.value)} rows={3} placeholder="卓の雰囲気や気づいたこと" /></label>{finish && <p className="form-hint">{rate[currency] ? `${rate[currency]?.date} 基準の参考レートで円換算します。` : 'レート未取得のため円換算は未確定です。元通貨の記録は保存できます。'}</p>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button className="primary-button" type="submit"><Check size={17} /> 記録を保存</button></div></form></div></div>
+  const venueOptions = useMemo(() => savedVenueOptions(sessions), [sessions])
+  const locationOptions = useMemo(() => savedLocationOptions(sessions), [sessions])
+  const previewProfit = finish && buyIn !== '' && cashOut !== '' ? Number(cashOut) - Number(buyIn) - Number(rebuy || 0) - Number(tips || 0) : null
+  const previewYen = previewProfit === null ? null : asYen(toMinor(previewProfit, currency), currency, initial?.rate || rate[currency])
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!venue.trim() || buyIn === '') return
+    const now = new Date().toISOString()
+    onSave({ id: initial?.id || crypto.randomUUID(), venue: venue.trim(), location: location.trim(), game, stakes: stakes.trim(), currency, startedAt: new Date(startedAt).toISOString(), localDate: startedAt.slice(0, 10), endedAt: finish ? initial?.endedAt || now : undefined, buyIn: toMinor(Number(buyIn), currency), rebuy: toMinor(Number(rebuy || 0), currency), cashOut: toMinor(Number(cashOut || 0), currency), tips: toMinor(Number(tips || 0), currency), note: note.trim(), rate: finish ? initial?.rate || rate[currency] : initial?.rate, createdAt: initial?.createdAt || now, updatedAt: now })
+  }
+  return <>
+    <div className="modal-backdrop" onMouseDown={onClose}><div className="modal session-entry-modal" onMouseDown={event => event.stopPropagation()} role="dialog" aria-modal="true" aria-label={initial ? 'セッションを編集' : '新しいセッション'}>
+      <div className="modal-header"><div><div className="eyebrow">SESSION ENTRY</div><h2>{initial ? 'セッションを編集' : '新しいセッション'}</h2><p className="entry-subtitle">よく使う項目はタップで選べます。</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる"><X size={21} /></button></div>
+      <form onSubmit={submit}>
+        <div className="entry-section-heading">プレーした場所</div>
+        <div className="form-grid">
+          <div className="field"><span>会場名 <span className="required-mark">必須</span></span><button type="button" className={`picker-trigger ${venue ? 'has-value' : ''}`} onClick={() => setPicker('venue')}><MapPin size={18} /><span>{venue || '会場を選択・追加'}</span><ChevronRight size={17} /></button></div>
+          <div className="field"><span>都市・場所</span><button type="button" className={`picker-trigger ${location ? 'has-value' : ''}`} onClick={() => setPicker('location')}><MapPin size={18} /><span>{location || '場所を選択・追加'}</span><ChevronRight size={17} /></button></div>
+        </div>
+        <div className="entry-section-heading">ゲームと通貨</div>
+        <div className="field"><span>ゲーム</span><div className="choice-row">{(['ライブ', 'オンライン'] as const).map(value => <button type="button" key={value} className={`choice-button ${game === value ? 'selected' : ''}`} aria-pressed={game === value} onClick={() => setGame(value)}>{value}</button>)}</div></div>
+        <div className="field"><span>通貨</span><div className="currency-choice-row"><button type="button" className={`choice-button ${currency === 'USD' ? 'selected' : ''}`} aria-pressed={currency === 'USD'} disabled={Boolean(initial)} onClick={() => setCurrency('USD')}>$ USD</button><button type="button" className={`choice-button ${currency === 'KRW' ? 'selected' : ''}`} aria-pressed={currency === 'KRW'} disabled={Boolean(initial)} onClick={() => setCurrency('KRW')}>₩ KRW</button><label className={`other-currency ${currency !== 'USD' && currency !== 'KRW' ? 'selected' : ''}`}><span>その他の通貨</span><select aria-label="その他の通貨" value={currency === 'USD' || currency === 'KRW' ? '' : currency} disabled={Boolean(initial)} onChange={event => { if (event.target.value) setCurrency(event.target.value as Currency) }}><option value="">選択</option>{currencies.filter(code => code !== 'USD' && code !== 'KRW').map(code => <option key={code} value={code}>{code}</option>)}</select><ChevronDown size={15} /></label></div>{initial && <small>既存の記録は通貨を変更できません。</small>}</div>
+        <div className="field"><span>ステークス</span><div className="choice-row stakes-choices">{stakeChoices.map(value => <button type="button" key={value} className={`choice-button ${stakes === value && !customStakes ? 'selected' : ''}`} aria-pressed={stakes === value && !customStakes} onClick={() => { setStakes(value); setCustomStakes(false) }}>{value}</button>)}<button type="button" className={`choice-button ${customStakes ? 'selected' : ''}`} aria-pressed={customStakes} onClick={() => { setStakes(''); setCustomStakes(true) }}>その他</button></div>{customStakes && <input value={stakes} onChange={event => setStakes(event.target.value)} maxLength={80} placeholder="例: 10/20、$0.5/$1" />}</div>
+        <div className="entry-section-heading">日時と投入額</div>
+        <div className="form-grid"><label className="field">開始日時 <input type="datetime-local" value={startedAt} onChange={event => setStartedAt(event.target.value)} required /></label><label className="field">初回バイイン <input type="number" inputMode="decimal" min="0" step="any" required value={buyIn} onChange={event => setBuyIn(event.target.value)} placeholder="300" /></label><label className="field">リバイ・追加購入 <input type="number" inputMode="decimal" min="0" step="any" value={rebuy} onChange={event => setRebuy(event.target.value)} /></label></div>
+        <div className="form-divider" />
+        <label className="toggle-row"><input type="checkbox" checked={finish} onChange={event => setFinish(event.target.checked)} /><span><strong>セッションを終了する</strong><small>キャッシュアウトを入力して収支を確定</small></span></label>
+        {finish && <><div className="form-grid"><label className="field">キャッシュアウト <input type="number" inputMode="decimal" min="0" step="any" required value={cashOut} onChange={event => setCashOut(event.target.value)} placeholder="400" /></label><label className="field">チップ <input type="number" inputMode="decimal" min="0" step="any" value={tips} onChange={event => setTips(event.target.value)} /></label></div>{previewProfit !== null && <div className={`entry-profit-preview ${previewProfit < 0 ? 'loss' : ''}`}><span>今回の収支</span><strong>{money(toMinor(previewProfit, currency), currency, true)}</strong><small>{previewYen === null ? '円換算レート未取得' : `参考円換算 ${formatYen(previewYen, true)}`}</small></div>}</>}
+        <label className="field full">セッションメモ <textarea value={note} onChange={event => setNote(event.target.value)} rows={2} maxLength={4000} placeholder="気づいたことがあれば記録" /></label>
+        {finish && <p className="form-hint">{rate[currency] ? `${rate[currency]?.date} 基準の参考レートで円換算します。` : 'レート未取得のため円換算は未確定です。元通貨の記録は保存できます。'}</p>}
+        <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button className="primary-button" type="submit"><Check size={17} /> {initial ? '変更を保存' : finish ? '収支を記録' : 'セッションを開始'}</button></div>
+      </form>
+    </div></div>
+    {picker === 'venue' && <EntryDrawer title="会場" value={venue} options={venueOptions} onClose={() => setPicker(null)} onChoose={(value, option) => { setVenue(value); if (option?.secondary) setLocation(option.secondary); else if (value !== venue) setLocation(''); setPicker(null) }} />}
+    {picker === 'location' && <EntryDrawer title="場所" value={location} options={locationOptions} allowClear onClose={() => setPicker(null)} onChoose={value => { setLocation(value); setPicker(null) }} />}
+  </>
 }
 
 function PlayerForm({ initial, onClose, onSave, onDelete }: { initial?: Player; onClose: () => void; onSave: (player: Player) => void; onDelete: (id: string) => void }) {
