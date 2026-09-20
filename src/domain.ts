@@ -14,6 +14,13 @@ export const toMinor = (value: number, currency: Currency) => Math.round(value *
 export const fromMinor = (value: number, currency: Currency) => value / 10 ** decimals[currency]
 export const profit = (session: Session) => session.cashOut - session.buyIn - session.rebuy - session.tips
 export const asYen = (minor: number, currency: Currency, rate?: Rate) => currency === 'JPY' ? minor : rate ? Math.round(fromMinor(minor, currency) * rate.rate) : null
+export const calendarDayTotal = (sessions: Session[]) => {
+  const completed = sessions.filter(session => session.endedAt)
+  if (!completed.length) return null
+  const converted = completed.map(session => asYen(profit(session), session.currency, session.rate))
+  if (converted.some(value => value === null)) return null
+  return converted.reduce<number>((sum, value) => sum + (value ?? 0), 0)
+}
 export const money = (minor: number, currency: Currency, signed = false) => {
   const value = fromMinor(minor, currency)
   const symbol = { JPY: '¥', USD: '$', EUR: '€', GBP: '£', HKD: 'HK$', KRW: '₩', PHP: '₱', VND: '₫', THB: '฿', TWD: 'NT$' }[currency]
