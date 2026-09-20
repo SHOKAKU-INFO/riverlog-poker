@@ -58,10 +58,18 @@
 .entry-drawer-caption{color:#879b8f;font-size:10px;font-weight:800;margin:18px 10px 4px}
 .entry-drawer-empty{color:#8b9e92;font-size:12px;line-height:1.6;padding:16px 10px}
 .entry-drawer-clear{justify-content:center;color:#947f80;font-size:11px;font-weight:800;margin-top:8px}
+.rebuy-field{display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin:0 0 18px}
+.rebuy-field .field{width:min(100%,285px);margin:0}
+.rebuy-quick-add{min-height:44px;display:inline-flex;align-items:center;gap:8px;border:1px solid #84b695;border-radius:8px;background:#edf7ef;color:#286344;padding:9px 12px;font-size:11px;font-weight:800}
+.rebuy-quick-add:hover:not(:disabled),.rebuy-quick-add:focus-visible{background:#dff0e4;outline:0;box-shadow:0 0 0 3px #dff3e4}
+.rebuy-quick-add strong{font-size:12px;margin-left:5px}
+.rebuy-field>small{color:#82968a;font-size:10px;line-height:1.6}
 @media(max-width:520px){
   .session-entry-modal{max-height:calc(100dvh - 20px)}
   .session-entry-modal .modal-actions{bottom:-19px;padding-bottom:calc(8px + env(safe-area-inset-bottom))}
   .session-entry-modal .modal-actions .primary-button{flex:1;min-height:46px}
   .entry-drawer{padding-inline:18px;max-height:88dvh}
   .stakes-choices .choice-button{flex:1 1 auto}
+  .rebuy-field .field,.rebuy-quick-add{width:100%}
+  .rebuy-quick-add strong{margin-left:auto}
 }
