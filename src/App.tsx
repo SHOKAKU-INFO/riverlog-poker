@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3, CloudOff, Copy, Download, ExternalLink, Globe2, LayoutDashboard, LogOut, MapPin, Menu, MoreHorizontal, Plus, Search, Settings2, ShieldCheck, Spade, Tag, Trash2, UserRound, Users, Wallet, X } from 'lucide-react'
 import type { User } from 'firebase/auth'
-import { asYen, calendarDayTotal, currencies, dateLabel, duration, fromMinor, hours, money, profit, samplePlayers, sampleSessions, shortDate, toMinor, type Currency, type Player, type Rate, type Session } from './domain'
+import { asYen, blindChoicesFor, calendarDayTotal, currencies, dateLabel, duration, fromMinor, hours, money, profit, samplePlayers, sampleSessions, shortDate, toMinor, type Currency, type Player, type Rate, type Session } from './domain'
 import { deletePlayerRemote, deleteSessionRemote, firebaseConfigured, loadRemote, login, logout, savePlayerRemote, saveSessionRemote, watchUser } from './firebase'
 import { getRate } from './rates'
 import { authErrorMessage, detectInAppBrowser, type InAppBrowser } from './browser'
@@ -172,8 +172,6 @@ function Empty({ message }: { message: string }) { return <div className="empty"
 function SessionRow({ session, onClick }: { session: Session; onClick: () => void }) { const result = profit(session); const yen = asYen(result, session.currency, session.rate); const active = !session.endedAt; return <button className="session-row" onClick={onClick}><div className={`result-icon ${active ? 'running' : result < 0 ? 'loss' : ''}`}>{active ? <Clock3 size={19} /> : result < 0 ? <ArrowDownRight size={20} /> : <ArrowUpRight size={20} />}</div><div className="session-main"><strong>{session.venue}</strong><span>{session.stakes} <span className="separator">·</span> {dateLabel((session.localDate || session.startedAt.slice(0, 10)) + 'T12:00:00')}</span></div><div className="session-extra"><span>{session.game}</span><small>{active ? 'プレー中' : duration(session)}</small></div><div className={`session-result ${active ? 'running' : result < 0 ? 'negative' : 'positive'}`}><strong>{active ? money(session.buyIn + session.rebuy, session.currency) : money(result, session.currency, true)}</strong><small>{active ? '投入中 · タップで操作' : formatYen(yen, true)}</small></div><ChevronRight size={17} className="row-chevron" /></button> }
 
 type EntryOption = { label: string; secondary?: string }
-const stakeChoices = ['1/2', '1/3', '2/5', '5/10']
-
 function savedVenueOptions(sessions: Session[]): EntryOption[] {
   const seen = new Set<string>()
   return [...sessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).flatMap(session => {
@@ -224,7 +222,7 @@ function SessionForm({ initial, sessions, rate, onClose, onSave }: { initial?: S
   const [location, setLocation] = useState(initial?.location || '')
   const [game, setGame] = useState<'ライブ' | 'オンライン'>(initial?.game || 'ライブ')
   const [stakes, setStakes] = useState(initial?.stakes || '')
-  const [customStakes, setCustomStakes] = useState(Boolean(initial?.stakes && !stakeChoices.includes(initial.stakes)))
+  const [customStakes, setCustomStakes] = useState(Boolean(initial?.stakes && !blindChoicesFor(initial.currency).includes(initial.stakes)))
   const [currency, setCurrency] = useState<Currency>(initial?.currency || 'USD')
   const [picker, setPicker] = useState<'venue' | 'location' | null>(null)
   const [buyIn, setBuyIn] = useState(initial ? String(fromMinor(initial.buyIn, initial.currency)) : '')
@@ -232,12 +230,19 @@ function SessionForm({ initial, sessions, rate, onClose, onSave }: { initial?: S
   const [tips, setTips] = useState(initial ? String(fromMinor(initial.tips, initial.currency)) : '0')
   const [note, setNote] = useState(initial?.note || '')
   const [startedAt, setStartedAt] = useState(initial ? localInputDate(new Date(initial.startedAt)) : localInputDate(new Date()))
+  const [entryRate, setEntryRate] = useState<Rate | undefined>(rate[initial?.currency || 'USD'])
   const venueOptions = useMemo(() => savedVenueOptions(sessions), [sessions])
   const locationOptions = useMemo(() => savedLocationOptions(sessions), [sessions])
+  const stakeChoices = blindChoicesFor(currency)
+  useEffect(() => { let current = true; setEntryRate(rate[currency]); void getRate(currency).then(value => { if (current) setEntryRate(value) }); return () => { current = false } }, [currency, rate])
   const completed = Boolean(initial?.endedAt)
   const rebuyAmount = initial ? fromMinor(initial.rebuy, initial.currency) : 0
   const previewProfit = completed && buyIn !== '' && cashOut !== '' ? Number(cashOut) - Number(buyIn) - rebuyAmount - Number(tips || 0) : null
   const previewYen = previewProfit === null ? null : asYen(toMinor(previewProfit, currency), currency, initial?.rate || rate[currency])
+  const buyInNumber = Number(buyIn)
+  const buyInYen = buyIn !== '' && Number.isFinite(buyInNumber) && buyInNumber >= 0 ? asYen(toMinor(buyInNumber, currency), currency, entryRate) : null
+  const rateUnit = currency === 'KRW' ? 100 : currency === 'VND' ? 1000 : 1
+  const chooseCurrency = (next: Currency) => { setCurrency(next); if (!customStakes) setStakes('') }
   const submit = (event: React.FormEvent) => {
     event.preventDefault()
     if (!venue.trim() || buyIn === '') return
@@ -256,10 +261,10 @@ function SessionForm({ initial, sessions, rate, onClose, onSave }: { initial?: S
         </div>
         <div className="entry-section-heading">ゲームと通貨</div>
         <div className="field"><span>ゲーム</span><div className="choice-row">{(['ライブ', 'オンライン'] as const).map(value => <button type="button" key={value} className={`choice-button ${game === value ? 'selected' : ''}`} aria-pressed={game === value} onClick={() => setGame(value)}>{value}</button>)}</div></div>
-        <div className="field"><span>通貨</span><div className="currency-choice-row"><button type="button" className={`choice-button ${currency === 'USD' ? 'selected' : ''}`} aria-pressed={currency === 'USD'} disabled={Boolean(initial)} onClick={() => setCurrency('USD')}>$ USD</button><button type="button" className={`choice-button ${currency === 'KRW' ? 'selected' : ''}`} aria-pressed={currency === 'KRW'} disabled={Boolean(initial)} onClick={() => setCurrency('KRW')}>₩ KRW</button><label className={`other-currency ${currency !== 'USD' && currency !== 'KRW' ? 'selected' : ''}`}><span>その他の通貨</span><select aria-label="その他の通貨" value={currency === 'USD' || currency === 'KRW' ? '' : currency} disabled={Boolean(initial)} onChange={event => { if (event.target.value) setCurrency(event.target.value as Currency) }}><option value="">選択</option>{currencies.filter(code => code !== 'USD' && code !== 'KRW').map(code => <option key={code} value={code}>{code}</option>)}</select><ChevronDown size={15} /></label></div>{initial && <small>既存の記録は通貨を変更できません。</small>}</div>
-        <div className="field"><span>ブラインド</span><div className="choice-row stakes-choices">{stakeChoices.map(value => <button type="button" key={value} className={`choice-button ${stakes === value && !customStakes ? 'selected' : ''}`} aria-pressed={stakes === value && !customStakes} onClick={() => { setStakes(value); setCustomStakes(false) }}>{value}</button>)}<button type="button" className={`choice-button ${customStakes ? 'selected' : ''}`} aria-pressed={customStakes} onClick={() => { setStakes(''); setCustomStakes(true) }}>その他</button></div>{customStakes && <input value={stakes} onChange={event => setStakes(event.target.value)} maxLength={80} placeholder="例: 10/20、$0.5/$1" />}</div>
+        <div className="field"><span>通貨</span><div className="currency-choice-row"><button type="button" className={`choice-button ${currency === 'USD' ? 'selected' : ''}`} aria-pressed={currency === 'USD'} disabled={Boolean(initial)} onClick={() => chooseCurrency('USD')}>$ USD</button><button type="button" className={`choice-button ${currency === 'KRW' ? 'selected' : ''}`} aria-pressed={currency === 'KRW'} disabled={Boolean(initial)} onClick={() => chooseCurrency('KRW')}>₩ KRW</button><label className={`other-currency ${currency !== 'USD' && currency !== 'KRW' ? 'selected' : ''}`}><span>その他の通貨</span><select aria-label="その他の通貨" value={currency === 'USD' || currency === 'KRW' ? '' : currency} disabled={Boolean(initial)} onChange={event => { if (event.target.value) chooseCurrency(event.target.value as Currency) }}><option value="">選択</option>{currencies.filter(code => code !== 'USD' && code !== 'KRW').map(code => <option key={code} value={code}>{code}</option>)}</select><ChevronDown size={15} /></label></div>{initial && <small>既存の記録は通貨を変更できません。</small>}</div>
+        <div className="field"><span>ブラインド <small className="field-inline-hint">{currency}のよく使う金額</small></span><div className="choice-row stakes-choices">{stakeChoices.map(value => <button type="button" key={value} className={`choice-button ${stakes === value && !customStakes ? 'selected' : ''}`} aria-pressed={stakes === value && !customStakes} onClick={() => { setStakes(value); setCustomStakes(false) }}>{value}</button>)}<button type="button" className={`choice-button ${customStakes ? 'selected' : ''}`} aria-pressed={customStakes} onClick={() => { setStakes(''); setCustomStakes(true) }}>その他</button></div>{customStakes && <input value={stakes} onChange={event => setStakes(event.target.value)} maxLength={80} placeholder="例: 10-20、0.5-1" />}</div>
         <div className="entry-section-heading">日時と投入額</div>
-        <div className="form-grid"><label className="field">開始日時 <input type="datetime-local" value={startedAt} onChange={event => setStartedAt(event.target.value)} required /></label><label className="field">初回バイイン <input type="number" inputMode="decimal" min="0" step="any" required value={buyIn} onChange={event => setBuyIn(event.target.value)} placeholder="300" /></label></div>
+        <div className="form-grid"><label className="field">開始日時 <input type="datetime-local" value={startedAt} onChange={event => setStartedAt(event.target.value)} required /></label><label className="field buy-in-field">初回バイイン <span className="currency-input"><b>{currency}</b><input type="number" inputMode="decimal" min="0" step="any" required value={buyIn} onChange={event => setBuyIn(event.target.value)} placeholder={currency === 'KRW' ? '300000' : currency === 'USD' ? '300' : '0'} /></span>{buyIn !== '' && <span className="yen-estimate" role="status" aria-live="polite"><span>現在の参考円換算</span><strong>{buyInYen === null ? 'レート取得中…' : `約 ${formatYen(buyInYen)}`}</strong>{currency !== 'JPY' && entryRate && <small>{rateUnit.toLocaleString('ja-JP')} {currency} ≈ ¥{(entryRate.rate * rateUnit).toLocaleString('ja-JP', { maximumFractionDigits: 2 })} · {entryRate.date}基準{entryRate.stale ? ' · 前回取得' : ''}</small>}</span>}</label></div>
         {completed && <><div className="entry-section-heading">確定済みの収支</div><div className="form-grid"><label className="field">キャッシュアウト <input type="number" inputMode="decimal" min="0" step="any" required value={cashOut} onChange={event => setCashOut(event.target.value)} /></label><label className="field">チップ <input type="number" inputMode="decimal" min="0" step="any" value={tips} onChange={event => setTips(event.target.value)} /></label></div>{previewProfit !== null && <div className={`entry-profit-preview ${previewProfit < 0 ? 'loss' : ''}`}><span>修正後の収支</span><strong>{money(toMinor(previewProfit, currency), currency, true)}</strong><small>{previewYen === null ? '円換算レート未取得' : `参考円換算 ${formatYen(previewYen, true)}`}</small></div>}</>}
         <label className="field full">セッションメモ <textarea value={note} onChange={event => setNote(event.target.value)} rows={2} maxLength={4000} placeholder="気づいたことがあれば記録" /></label>
         <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button className="primary-button" type="submit"><Check size={17} /> {initial ? '変更を保存' : 'セッションを開始'}</button></div>

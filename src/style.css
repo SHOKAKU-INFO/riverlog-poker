@@ -22,6 +22,9 @@
 .choice-button{min-height:44px;border:1px solid #dfe9e0;background:#fbfcfa;border-radius:8px;padding:8px 16px;color:#426252;font-size:12px;font-weight:800}
 .choice-button:hover,.choice-button:focus-visible{border-color:#6eaf87;outline:0}
 .choice-button.selected{border-color:#64a77e;background:#e7f4eb;color:#246b49;box-shadow:inset 0 0 0 1px #64a77e}
+.field-inline-hint{margin-left:5px;font-weight:600!important;color:#91a298!important}
+.currency-input{display:flex;min-height:46px;border:1px solid #dfe9e0;background:#fbfcfa;border-radius:8px;overflow:hidden}.currency-input:focus-within{border-color:#6eaf87;box-shadow:0 0 0 3px #dff3e4}.currency-input b{display:grid;place-items:center;padding:0 11px;border-right:1px solid #e2e9e3;color:#688075;font-size:9px}.currency-input input{border:0!important;border-radius:0!important;box-shadow:none!important;background:transparent!important;text-align:right;font-size:15px!important;font-weight:800}
+.yen-estimate{display:grid;grid-template-columns:1fr auto;align-items:center;gap:3px 10px;background:#edf6ef;border:1px solid #dbeade;border-radius:8px;padding:9px 11px;color:#47715d}.yen-estimate>span{font-size:9px;font-weight:700}.yen-estimate>strong{font-size:13px;color:#236b4a}.yen-estimate>small{grid-column:1/-1;text-align:right;color:#7c9587!important;font-size:8px!important}
 .currency-choice-row{display:grid;grid-template-columns:1fr 1fr minmax(0,1.15fr);gap:8px}
 .currency-choice-row>.choice-button{padding-inline:8px}
 .other-currency{position:relative;min-width:0}
