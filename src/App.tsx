@@ -28,6 +28,7 @@ function App() {
   const [players, setPlayers] = useState<Player[]>(() => readLocal('riverlog-demo-players', samplePlayers))
   const [rates, setRates] = useState<Partial<Record<Currency, Rate>>>({})
   const [sessionModal, setSessionModal] = useState<Session | 'new' | null>(null)
+  const [sessionAction, setSessionAction] = useState<{ kind: 'rebuy' | 'finish'; session: Session } | null>(null)
   const [playerModal, setPlayerModal] = useState<Player | 'new' | null>(null)
   const [selectedSession, setSelectedSession] = useState<Session | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -59,12 +60,17 @@ function App() {
   const liveRate = rates.USD
   const wonRate = rates.KRW
 
-  const saveSession = async (session: Session) => {
+  const saveSession = async (session: Session, successMessage?: string) => {
     const previous = sessions
     setSessions(current => [session, ...current.filter(s => s.id !== session.id)])
-    setSessionModal(null); setSelectedSession(null)
-    if (user) try { await saveSessionRemote(user.uid, session) } catch { setSessions(previous); setNotice('保存に失敗しました。接続を確認してください。') }
-    else setNotice('端末内のデモデータに保存しました')
+    setSessionModal(null); setSessionAction(null); setSelectedSession(null)
+    if (user) try { await saveSessionRemote(user.uid, session) } catch { setSessions(previous); setNotice('保存に失敗しました。接続を確認してください。'); return }
+    else if (!successMessage) setNotice('端末内のデモデータに保存しました')
+    if (successMessage) setNotice(successMessage)
+  }
+  const addMatchingRebuy = (session: Session) => {
+    const updatedAt = new Date().toISOString()
+    void saveSession({ ...session, rebuy: session.rebuy + session.buyIn, updatedAt }, `${money(session.buyIn, session.currency)} のリバイを追加しました`)
   }
   const removeSession = async (id: string) => {
     if (!window.confirm('このセッションを削除しますか？')) return
@@ -82,6 +88,7 @@ function App() {
     if (user) try { await deletePlayerRemote(user.uid, id) } catch { setPlayers(previous); setNotice('削除に失敗しました') }
   }
   const navigate = (destination: Page) => { setPage(destination); setSidebarOpen(false); window.scrollTo(0, 0) }
+  const startOrOpenSession = () => active ? setSelectedSession(active) : setSessionModal('new')
   const exportCsv = () => {
     const rows = [['id','venue','location','game','stakes','currency','startedAt','endedAt','buyIn','rebuy','cashOut','tips','profit','rate','rateDate','note'], ...sessions.map(s => [s.id,s.venue,s.location,s.game,s.stakes,s.currency,s.startedAt,s.endedAt || '',fromMinor(s.buyIn,s.currency),fromMinor(s.rebuy,s.currency),fromMinor(s.cashOut,s.currency),fromMinor(s.tips,s.currency),fromMinor(profit(s),s.currency),s.rate?.rate || '',s.rate?.date || '',s.note])]
     const csv = '\ufeff' + rows.map(row => row.map(value => `"${String(value).replaceAll('"','""')}"`).join(',')).join('\r\n')
@@ -104,18 +111,18 @@ function App() {
         {!user && <div className="demo-banner"><div><ShieldCheck size={17} /><span>{firebaseConfigured ? 'デモを表示中。Google でログインすると自分のデータを保存できます。' : 'デモモードです。Firebase 設定後、Google ログインとクラウド同期が使えます。'}</span></div>{firebaseConfigured && authReady && <button onClick={() => login().catch(() => setNotice('ログインできませんでした。承認済みドメインを確認してください。'))}>Google でログイン <ArrowRight size={15} /></button>}</div>}
 
         {page === 'overview' && <>
-          <div className="page-heading"><div><div className="eyebrow">OVERVIEW / {new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'long' }).format(new Date())}</div><h1>おかえりなさい<span className="title-period">.</span></h1><p>プレーと収支を、旅の流れに沿って振り返る。</p></div><button className="primary-button" onClick={() => setSessionModal('new')}><Plus size={18} /> セッションを記録</button></div>
+          <div className="page-heading"><div><div className="eyebrow">OVERVIEW / {new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'long' }).format(new Date())}</div><h1>おかえりなさい<span className="title-period">.</span></h1><p>プレーと収支を、旅の流れに沿って振り返る。</p></div><button className="primary-button" onClick={startOrOpenSession}>{active ? <Clock3 size={18} /> : <Plus size={18} />} {active ? '進行中を開く' : 'セッションを開始'}</button></div>
           <section className="hero-grid"><div className="hero-card"><div className="hero-card-top"><span><Activity size={16} /> TOTAL PERFORMANCE</span><MoreHorizontal size={22} /></div><div className="hero-main"><div className="hero-overline">累計参考収支 <span>JPY 換算</span></div><div className="hero-amount">{money(totalYen, 'JPY', true)}</div><div className="hero-hint">終了済み {completed.length} セッションの固定レート換算</div></div><div className="hero-card-bottom"><span><span className="hero-dot" /> あなたの記録</span><span>01 / 03</span></div></div><div className="stat-stack"><StatCard icon={Clock3} label="総プレー時間" value={`${totalHours.toFixed(1)}h`} detail="終了済みセッション" /><StatCard icon={Wallet} label="平均時給" value={totalHours >= 0.05 ? formatYen(Math.round(totalYen / totalHours)) : '—'} detail="参考円換算 / 時間" /></div></section>
           <section className="insight-row"><div className="mini-stat"><div className="mini-icon green"><ArrowUpRight size={19} /></div><div><small>勝率</small><strong>{completed.length ? `${Math.round(wins / completed.length * 100)}%` : '—'}</strong></div><span>WIN RATE</span></div><div className="mini-stat"><div className="mini-icon amber"><Spade size={19} /></div><div><small>記録したセッション</small><strong>{sessions.length}回</strong></div><span>SESSIONS</span></div><div className="mini-stat"><div className="mini-icon blue"><Globe2 size={19} /></div><div><small>使用した通貨</small><strong>{new Set(sessions.map(s => s.currency)).size}種類</strong></div><span>CURRENCIES</span></div></section>
-          {active && <section className="active-session"><div><span className="active-label"><span className="pulse" /> 進行中のセッション</span><h3>{active.venue} <span>{active.stakes}</span></h3><p>{duration(active, now)} プレー中 · {money(active.buyIn + active.rebuy, active.currency)} 投入</p></div><button className="secondary-button" onClick={() => setSelectedSession(active)}>セッションを開く <ArrowRight size={17} /></button></section>}
+          {active && <section className="active-session"><button className="active-session-summary" onClick={() => setSelectedSession(active)}><span className="active-label"><span className="pulse" /> LIVE SESSION</span><h3>{active.venue} <span>{active.stakes}</span></h3><p>{duration(active, now)} プレー中 · {money(active.buyIn + active.rebuy, active.currency)} 投入</p></button><div className="active-actions"><button className="active-quick-button" onClick={() => addMatchingRebuy(active)}><Plus size={17} /><span>同額リバイ<small>{money(active.buyIn, active.currency)}</small></span></button><button className="active-quick-button" onClick={() => setSessionAction({ kind: 'rebuy', session: active })}><Wallet size={17} /><span>別の金額<small>自由入力</small></span></button><button className="active-finish-button" onClick={() => setSessionAction({ kind: 'finish', session: active })}>終了する <ArrowRight size={16} /></button></div></section>}
           <section className="section"><SectionHeading label="RECENT ACTIVITY" title="最近のセッション" action="すべて見る" onAction={() => navigate('sessions')} /><div className="session-list">{sorted.slice(0, 4).map(s => <SessionRow key={s.id} session={s} onClick={() => setSelectedSession(s)} />)}{!sorted.length && <Empty message="まだセッションがありません。最初の記録を作成しましょう。" />}</div></section>
           <div className="lower-grid"><section className="panel"><SectionHeading label="CURRENCY NOTE" title="円換算について" /><div className="rate-panel"><div className="rate-icon"><Globe2 size={23} /></div><div className="rate-values"><strong>{liveRate ? `1 USD ≈ ¥${liveRate.rate.toFixed(2)}` : 'USD レートを取得できませんでした'}</strong><strong>{wonRate ? `100 KRW ≈ ¥${(wonRate.rate * 100).toFixed(2)}` : 'KRW レートを取得できませんでした'}</strong><p>{liveRate || wonRate ? `${liveRate?.date || wonRate?.date} 基準 · Frankfurter の日次参考レート` : '現地通貨の記録は引き続き利用できます。'}</p></div></div><p className="panel-note">記録時のレートを固定保存します。実際の両替・決済レートとは異なります。</p></section><section className="panel"><SectionHeading label="QUICK ACCESS" title="次の記録へ" /><button className="quick-link" onClick={() => setPlayerModal('new')}><span className="quick-icon"><Users size={20} /></span><span><strong>プレイヤーメモを追加</strong><small>卓で気づいた特徴を忘れずに</small></span><ArrowRight size={18} /></button><button className="quick-link" onClick={() => navigate('calendar')}><span className="quick-icon"><CalendarDays size={20} /></span><span><strong>カレンダーを開く</strong><small>旅のプレー履歴を日付で探す</small></span><ArrowRight size={18} /></button></section></div>
         </>}
 
-        {page === 'sessions' && <><div className="page-heading"><div><div className="eyebrow">YOUR PLAY HISTORY</div><h1>セッション<span className="title-period">.</span></h1><p>現地通貨と円換算、両方の視点で記録する。</p></div><button className="primary-button" onClick={() => setSessionModal('new')}><Plus size={18} /> 新しいセッション</button></div><div className="filter-bar"><div className="search-box"><Search size={18} /><input placeholder="会場・ゲームで検索" value={search} onChange={e => setSearch(e.target.value)} /></div><span>{sorted.length} 件の記録</span></div><div className="session-list page-list">{sorted.filter(s => `${s.venue} ${s.game} ${s.location}`.toLowerCase().includes(search.toLowerCase())).map(s => <SessionRow key={s.id} session={s} onClick={() => setSelectedSession(s)} />)}{!sessions.length && <Empty message="まだセッションがありません。" />}</div></>}
+        {page === 'sessions' && <><div className="page-heading"><div><div className="eyebrow">YOUR PLAY HISTORY</div><h1>セッション<span className="title-period">.</span></h1><p>現地通貨と円換算、両方の視点で記録する。</p></div><button className="primary-button" onClick={startOrOpenSession}>{active ? <Clock3 size={18} /> : <Plus size={18} />} {active ? '進行中を開く' : 'セッションを開始'}</button></div><div className="filter-bar"><div className="search-box"><Search size={18} /><input placeholder="会場・ゲームで検索" value={search} onChange={e => setSearch(e.target.value)} /></div><span>{sorted.length} 件の記録</span></div><div className="session-list page-list">{sorted.filter(s => `${s.venue} ${s.game} ${s.location}`.toLowerCase().includes(search.toLowerCase())).map(s => <SessionRow key={s.id} session={s} onClick={() => setSelectedSession(s)} />)}{!sessions.length && <Empty message="まだセッションがありません。" />}</div></>}
 
         {page === 'calendar' && <>
-          <div className="page-heading"><div><div className="eyebrow">PLAY CALENDAR</div><h1>カレンダー<span className="title-period">.</span></h1><p>日ごとの収支合計を、記録時のレートで表示する。</p></div><button className="primary-button" onClick={() => setSessionModal('new')}><Plus size={18} /> 記録する</button></div>
+          <div className="page-heading"><div><div className="eyebrow">PLAY CALENDAR</div><h1>カレンダー<span className="title-period">.</span></h1><p>日ごとの収支合計を、記録時のレートで表示する。</p></div><button className="primary-button" onClick={startOrOpenSession}>{active ? <Clock3 size={18} /> : <Plus size={18} />} {active ? '進行中を開く' : 'セッションを開始'}</button></div>
           <div className="calendar-panel">
             <div className="calendar-head"><h2>{year}年 {month + 1}月</h2><div><button className="icon-button" onClick={() => { const d = new Date(year, month - 1); setYear(d.getFullYear()); setMonth(d.getMonth()); setSelectedDay(null) }} aria-label="前月"><ChevronLeft size={20} /></button><button className="icon-button" onClick={() => { const d = new Date(year, month + 1); setYear(d.getFullYear()); setMonth(d.getMonth()); setSelectedDay(null) }} aria-label="翌月"><ChevronRight size={20} /></button></div></div>
             <div className="calendar-grid">
@@ -143,15 +150,17 @@ function App() {
     </main>
     <nav className="mobile-nav" aria-label="モバイルメニュー">{nav.slice(0, 5).map(item => <button key={item.page} className={page === item.page ? 'active' : ''} onClick={() => navigate(item.page)}><item.icon size={21} /><span>{item.page === 'overview' ? 'ホーム' : item.page === 'players' ? 'メモ' : item.label}</span></button>)}</nav>
     {sessionModal && <SessionForm initial={sessionModal === 'new' ? undefined : sessionModal} sessions={sessions} rate={rates} onClose={() => setSessionModal(null)} onSave={saveSession} />}
+    {sessionAction?.kind === 'rebuy' && <RebuyForm session={sessionAction.session} onClose={() => setSessionAction(null)} onSave={(amount) => { const session = sessionAction.session; void saveSession({ ...session, rebuy: session.rebuy + amount, updatedAt: new Date().toISOString() }, `${money(amount, session.currency)} のリバイを追加しました`) }} />}
+    {sessionAction?.kind === 'finish' && <FinishSessionForm session={sessionAction.session} rate={rates[sessionAction.session.currency]} onClose={() => setSessionAction(null)} onSave={session => void saveSession(session, 'セッションを終了し、収支を記録しました')} />}
     {playerModal && <PlayerForm initial={playerModal === 'new' ? undefined : playerModal} onClose={() => setPlayerModal(null)} onSave={savePlayer} onDelete={removePlayer} />}
-    {selectedSession && <SessionDetail session={selectedSession} currentRate={rates[selectedSession.currency]} now={now} onClose={() => setSelectedSession(null)} onEdit={() => { setSessionModal(selectedSession); setSelectedSession(null) }} onDelete={() => removeSession(selectedSession.id)} onFinish={() => { setSessionModal(selectedSession); setSelectedSession(null) }} />}
+    {selectedSession && <SessionDetail session={selectedSession} currentRate={rates[selectedSession.currency]} now={now} onClose={() => setSelectedSession(null)} onEdit={() => { setSessionModal(selectedSession); setSelectedSession(null) }} onDelete={() => removeSession(selectedSession.id)} onQuickRebuy={() => addMatchingRebuy(selectedSession)} onCustomRebuy={() => { setSessionAction({ kind: 'rebuy', session: selectedSession }); setSelectedSession(null) }} onFinish={() => { setSessionAction({ kind: 'finish', session: selectedSession }); setSelectedSession(null) }} />}
   </div>
 }
 
 function StatCard({ icon: Icon, label, value, detail }: { icon: typeof Clock3; label: string; value: string; detail: string }) { return <div className="stat-card"><div className="stat-head"><div className="stat-icon"><Icon size={19} /></div><ArrowUpRight size={17} /></div><small>{label}</small><strong>{value}</strong><span>{detail}</span></div> }
 function SectionHeading({ label, title, action, onAction }: { label: string; title: string; action?: string; onAction?: () => void }) { return <div className="section-heading"><div><div className="eyebrow">{label}</div><h2>{title}</h2></div>{action && <button className="text-link" onClick={onAction}>{action} <ArrowRight size={16} /></button>}</div> }
 function Empty({ message }: { message: string }) { return <div className="empty"><Spade size={27} /><p>{message}</p></div> }
-function SessionRow({ session, onClick }: { session: Session; onClick: () => void }) { const result = profit(session); const yen = asYen(result, session.currency, session.rate); return <button className="session-row" onClick={onClick}><div className={`result-icon ${!session.endedAt ? 'running' : result < 0 ? 'loss' : ''}`}>{!session.endedAt ? <Clock3 size={19} /> : result < 0 ? <ArrowDownRight size={20} /> : <ArrowUpRight size={20} />}</div><div className="session-main"><strong>{session.venue}</strong><span>{session.stakes} <span className="separator">·</span> {dateLabel((session.localDate || session.startedAt.slice(0, 10)) + 'T12:00:00')}</span></div><div className="session-extra"><span>{session.game}</span><small>{session.endedAt ? duration(session) : '進行中'}</small></div><div className={`session-result ${result < 0 ? 'negative' : 'positive'}`}><strong>{session.endedAt ? money(result, session.currency, true) : '進行中'}</strong><small>{session.endedAt ? formatYen(yen, true) : 'タップして開く'}</small></div><ChevronRight size={17} className="row-chevron" /></button> }
+function SessionRow({ session, onClick }: { session: Session; onClick: () => void }) { const result = profit(session); const yen = asYen(result, session.currency, session.rate); const active = !session.endedAt; return <button className="session-row" onClick={onClick}><div className={`result-icon ${active ? 'running' : result < 0 ? 'loss' : ''}`}>{active ? <Clock3 size={19} /> : result < 0 ? <ArrowDownRight size={20} /> : <ArrowUpRight size={20} />}</div><div className="session-main"><strong>{session.venue}</strong><span>{session.stakes} <span className="separator">·</span> {dateLabel((session.localDate || session.startedAt.slice(0, 10)) + 'T12:00:00')}</span></div><div className="session-extra"><span>{session.game}</span><small>{active ? 'プレー中' : duration(session)}</small></div><div className={`session-result ${active ? 'running' : result < 0 ? 'negative' : 'positive'}`}><strong>{active ? money(session.buyIn + session.rebuy, session.currency) : money(result, session.currency, true)}</strong><small>{active ? '投入中 · タップで操作' : formatYen(yen, true)}</small></div><ChevronRight size={17} className="row-chevron" /></button> }
 
 type EntryOption = { label: string; secondary?: string }
 const stakeChoices = ['1/2', '1/3', '2/5', '5/10']
@@ -210,35 +219,27 @@ function SessionForm({ initial, sessions, rate, onClose, onSave }: { initial?: S
   const [currency, setCurrency] = useState<Currency>(initial?.currency || 'USD')
   const [picker, setPicker] = useState<'venue' | 'location' | null>(null)
   const [buyIn, setBuyIn] = useState(initial ? String(fromMinor(initial.buyIn, initial.currency)) : '')
-  const [rebuy, setRebuy] = useState(initial ? String(fromMinor(initial.rebuy, initial.currency)) : '0')
   const [cashOut, setCashOut] = useState(initial ? String(fromMinor(initial.cashOut, initial.currency)) : '')
   const [tips, setTips] = useState(initial ? String(fromMinor(initial.tips, initial.currency)) : '0')
   const [note, setNote] = useState(initial?.note || '')
-  const [finish, setFinish] = useState(Boolean(initial?.endedAt))
   const [startedAt, setStartedAt] = useState(initial ? localInputDate(new Date(initial.startedAt)) : localInputDate(new Date()))
   const venueOptions = useMemo(() => savedVenueOptions(sessions), [sessions])
   const locationOptions = useMemo(() => savedLocationOptions(sessions), [sessions])
-  const previewProfit = finish && buyIn !== '' && cashOut !== '' ? Number(cashOut) - Number(buyIn) - Number(rebuy || 0) - Number(tips || 0) : null
+  const completed = Boolean(initial?.endedAt)
+  const rebuyAmount = initial ? fromMinor(initial.rebuy, initial.currency) : 0
+  const previewProfit = completed && buyIn !== '' && cashOut !== '' ? Number(cashOut) - Number(buyIn) - rebuyAmount - Number(tips || 0) : null
   const previewYen = previewProfit === null ? null : asYen(toMinor(previewProfit, currency), currency, initial?.rate || rate[currency])
-  const buyInAmount = Number(buyIn)
-  const buyInMinor = Number.isFinite(buyInAmount) && buyInAmount > 0 ? toMinor(buyInAmount, currency) : 0
-  const addMatchingRebuy = () => {
-    if (buyInMinor <= 0) return
-    setRebuy(current => {
-      const previous = Number(current || 0)
-      return Number.isFinite(previous) && previous >= 0 ? String(fromMinor(toMinor(previous, currency) + buyInMinor, currency)) : current
-    })
-  }
   const submit = (event: React.FormEvent) => {
     event.preventDefault()
     if (!venue.trim() || buyIn === '') return
     const now = new Date().toISOString()
-    onSave({ id: initial?.id || crypto.randomUUID(), venue: venue.trim(), location: location.trim(), game, stakes: stakes.trim(), currency, startedAt: new Date(startedAt).toISOString(), localDate: startedAt.slice(0, 10), endedAt: finish ? initial?.endedAt || now : undefined, buyIn: toMinor(Number(buyIn), currency), rebuy: toMinor(Number(rebuy || 0), currency), cashOut: toMinor(Number(cashOut || 0), currency), tips: toMinor(Number(tips || 0), currency), note: note.trim(), rate: finish ? initial?.rate || rate[currency] : initial?.rate, createdAt: initial?.createdAt || now, updatedAt: now })
+    onSave({ id: initial?.id || crypto.randomUUID(), venue: venue.trim(), location: location.trim(), game, stakes: stakes.trim(), currency, startedAt: new Date(startedAt).toISOString(), localDate: startedAt.slice(0, 10), endedAt: initial?.endedAt, buyIn: toMinor(Number(buyIn), currency), rebuy: initial?.rebuy || 0, cashOut: completed ? toMinor(Number(cashOut || 0), currency) : initial?.cashOut || 0, tips: completed ? toMinor(Number(tips || 0), currency) : initial?.tips || 0, note: note.trim(), rate: initial?.rate, createdAt: initial?.createdAt || now, updatedAt: now })
   }
   return <>
-    <div className="modal-backdrop" onMouseDown={onClose}><div className="modal session-entry-modal" onMouseDown={event => event.stopPropagation()} role="dialog" aria-modal="true" aria-label={initial ? 'セッションを編集' : '新しいセッション'}>
-      <div className="modal-header"><div><div className="eyebrow">SESSION ENTRY</div><h2>{initial ? 'セッションを編集' : '新しいセッション'}</h2><p className="entry-subtitle">よく使う項目はタップで選べます。</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる"><X size={21} /></button></div>
+    <div className="modal-backdrop" onMouseDown={onClose}><div className="modal session-entry-modal" onMouseDown={event => event.stopPropagation()} role="dialog" aria-modal="true" aria-label={initial ? 'セッションを編集' : 'セッションを開始'}>
+      <div className="modal-header"><div><div className="eyebrow">{initial ? 'SESSION SETTINGS' : 'START SESSION'}</div><h2>{initial ? '基本情報を編集' : 'セッションを始める'}</h2><p className="entry-subtitle">{initial ? '会場や初回バイインを修正します。' : '開始に必要な項目だけを、短く入力します。'}</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる"><X size={21} /></button></div>
       <form onSubmit={submit}>
+        <div className="session-journey" aria-label="セッションの流れ"><span className="active"><strong>1</strong> 開始</span><i /><span><strong>2</strong> プレー中</span><i /><span><strong>3</strong> 収支確定</span></div>
         <div className="entry-section-heading">プレーした場所</div>
         <div className="form-grid">
           <div className="field"><span>会場名 <span className="required-mark">必須</span></span><button type="button" className={`picker-trigger ${venue ? 'has-value' : ''}`} onClick={() => setPicker('venue')}><MapPin size={18} /><span>{venue || '会場を選択・追加'}</span><ChevronRight size={17} /></button></div>
@@ -250,13 +251,9 @@ function SessionForm({ initial, sessions, rate, onClose, onSave }: { initial?: S
         <div className="field"><span>ステークス</span><div className="choice-row stakes-choices">{stakeChoices.map(value => <button type="button" key={value} className={`choice-button ${stakes === value && !customStakes ? 'selected' : ''}`} aria-pressed={stakes === value && !customStakes} onClick={() => { setStakes(value); setCustomStakes(false) }}>{value}</button>)}<button type="button" className={`choice-button ${customStakes ? 'selected' : ''}`} aria-pressed={customStakes} onClick={() => { setStakes(''); setCustomStakes(true) }}>その他</button></div>{customStakes && <input value={stakes} onChange={event => setStakes(event.target.value)} maxLength={80} placeholder="例: 10/20、$0.5/$1" />}</div>
         <div className="entry-section-heading">日時と投入額</div>
         <div className="form-grid"><label className="field">開始日時 <input type="datetime-local" value={startedAt} onChange={event => setStartedAt(event.target.value)} required /></label><label className="field">初回バイイン <input type="number" inputMode="decimal" min="0" step="any" required value={buyIn} onChange={event => setBuyIn(event.target.value)} placeholder="300" /></label></div>
-        <div className="rebuy-field"><label className="field">リバイ・追加購入の合計 <input type="number" inputMode="decimal" min="0" step="any" value={rebuy} onFocus={event => event.currentTarget.select()} onChange={event => setRebuy(event.target.value)} /></label><button type="button" className="rebuy-quick-add" disabled={buyInMinor <= 0} onClick={addMatchingRebuy}><Plus size={17} /> 初回バイインと同額を追加{buyInMinor > 0 && <strong>{money(buyInMinor, currency)}</strong>}</button><small>押すたびに合計へ加算。違う金額は上の欄に直接入力できます。</small></div>
-        <div className="form-divider" />
-        <label className="toggle-row"><input type="checkbox" checked={finish} onChange={event => setFinish(event.target.checked)} /><span><strong>セッションを終了する</strong><small>キャッシュアウトを入力して収支を確定</small></span></label>
-        {finish && <><div className="form-grid"><label className="field">キャッシュアウト <input type="number" inputMode="decimal" min="0" step="any" required value={cashOut} onChange={event => setCashOut(event.target.value)} placeholder="400" /></label><label className="field">チップ <input type="number" inputMode="decimal" min="0" step="any" value={tips} onChange={event => setTips(event.target.value)} /></label></div>{previewProfit !== null && <div className={`entry-profit-preview ${previewProfit < 0 ? 'loss' : ''}`}><span>今回の収支</span><strong>{money(toMinor(previewProfit, currency), currency, true)}</strong><small>{previewYen === null ? '円換算レート未取得' : `参考円換算 ${formatYen(previewYen, true)}`}</small></div>}</>}
+        {completed && <><div className="entry-section-heading">確定済みの収支</div><div className="form-grid"><label className="field">キャッシュアウト <input type="number" inputMode="decimal" min="0" step="any" required value={cashOut} onChange={event => setCashOut(event.target.value)} /></label><label className="field">チップ <input type="number" inputMode="decimal" min="0" step="any" value={tips} onChange={event => setTips(event.target.value)} /></label></div>{previewProfit !== null && <div className={`entry-profit-preview ${previewProfit < 0 ? 'loss' : ''}`}><span>修正後の収支</span><strong>{money(toMinor(previewProfit, currency), currency, true)}</strong><small>{previewYen === null ? '円換算レート未取得' : `参考円換算 ${formatYen(previewYen, true)}`}</small></div>}</>}
         <label className="field full">セッションメモ <textarea value={note} onChange={event => setNote(event.target.value)} rows={2} maxLength={4000} placeholder="気づいたことがあれば記録" /></label>
-        {finish && <p className="form-hint">{rate[currency] ? `${rate[currency]?.date} 基準の参考レートで円換算します。` : 'レート未取得のため円換算は未確定です。元通貨の記録は保存できます。'}</p>}
-        <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button className="primary-button" type="submit"><Check size={17} /> {initial ? '変更を保存' : finish ? '収支を記録' : 'セッションを開始'}</button></div>
+        <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button className="primary-button" type="submit"><Check size={17} /> {initial ? '変更を保存' : 'セッションを開始'}</button></div>
       </form>
     </div></div>
     {picker === 'venue' && <EntryDrawer title="会場" value={venue} options={venueOptions} onClose={() => setPicker(null)} onChoose={(value, option) => { setVenue(value); if (option?.secondary) setLocation(option.secondary); else if (value !== venue) setLocation(''); setPicker(null) }} />}
@@ -264,11 +261,76 @@ function SessionForm({ initial, sessions, rate, onClose, onSave }: { initial?: S
   </>
 }
 
+function RebuyForm({ session, onClose, onSave }: { session: Session; onClose: () => void; onSave: (amount: number) => void }) {
+  const initialAmount = fromMinor(session.buyIn, session.currency)
+  const [amount, setAmount] = useState('')
+  const minor = Number.isFinite(Number(amount)) && Number(amount) > 0 ? toMinor(Number(amount), session.currency) : 0
+  const presets = [...new Set([initialAmount / 2, initialAmount, initialAmount * 2].filter(value => value > 0))]
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal action-modal" onMouseDown={event => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="リバイを追加">
+    <div className="action-modal-head"><div className="action-icon"><Plus size={22} /></div><div><div className="eyebrow">ADD REBUY</div><h2>リバイを追加</h2><p>{session.venue} · {session.stakes}</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる"><X size={21} /></button></div>
+    <div className="session-journey compact" aria-label="セッションの流れ"><span><strong>1</strong> 開始</span><i /><span className="active"><strong>2</strong> プレー中</span><i /><span><strong>3</strong> 収支確定</span></div>
+    <div className="money-context"><span>現在の投入合計</span><strong>{money(session.buyIn + session.rebuy, session.currency)}</strong><small>初回 {money(session.buyIn, session.currency)} · リバイ {money(session.rebuy, session.currency)}</small></div>
+    <div className="action-section"><span className="action-label">追加する金額</span><div className="amount-presets">{presets.map(value => <button type="button" key={value} className={Number(amount) === value ? 'selected' : ''} onClick={() => setAmount(String(value))}>{value === initialAmount ? <small>初回と同額</small> : null}<strong>{money(toMinor(value, session.currency), session.currency)}</strong></button>)}</div><label className="money-input"><span>{session.currency}</span><input autoFocus type="number" inputMode="decimal" min="0" step="any" value={amount} onChange={event => setAmount(event.target.value)} placeholder="金額を入力" /></label><p>プリセット以外の金額も直接入力できます。</p></div>
+    <div className="action-summary"><span>追加後の投入合計</span><strong>{money(session.buyIn + session.rebuy + minor, session.currency)}</strong></div>
+    <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>戻る</button><button type="button" className="primary-button action-primary" disabled={minor <= 0} onClick={() => onSave(minor)}><Plus size={17} /> リバイを追加</button></div>
+  </div></div>
+}
+
+function FinishSessionForm({ session, rate, onClose, onSave }: { session: Session; rate?: Rate; onClose: () => void; onSave: (session: Session) => void }) {
+  const [cashOut, setCashOut] = useState('')
+  const [tips, setTips] = useState('0')
+  const cashOutMinor = cashOut === '' ? null : toMinor(Number(cashOut), session.currency)
+  const tipsMinor = toMinor(Number(tips || 0), session.currency)
+  const invested = session.buyIn + session.rebuy
+  const result = cashOutMinor === null ? null : cashOutMinor - invested - tipsMinor
+  const yen = result === null ? null : asYen(result, session.currency, rate)
+  const finish = (event: React.FormEvent) => {
+    event.preventDefault()
+    if (cashOutMinor === null || cashOutMinor < 0 || tipsMinor < 0) return
+    const now = new Date().toISOString()
+    onSave({ ...session, endedAt: now, cashOut: cashOutMinor, tips: tipsMinor, rate, updatedAt: now })
+  }
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal action-modal finish-modal" onMouseDown={event => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="セッションを終了">
+    <div className="action-modal-head"><div className="action-icon finish"><Check size={22} /></div><div><div className="eyebrow">CLOSE SESSION</div><h2>収支を確定</h2><p>{session.venue} · {duration(session)} プレー</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる"><X size={21} /></button></div>
+    <div className="session-journey compact" aria-label="セッションの流れ"><span><strong>1</strong> 開始</span><i /><span><strong>2</strong> プレー中</span><i /><span className="active"><strong>3</strong> 収支確定</span></div>
+    <div className="money-context"><span>投入した合計</span><strong>{money(invested, session.currency)}</strong><small>初回 {money(session.buyIn, session.currency)} · リバイ {money(session.rebuy, session.currency)}</small></div>
+    <form onSubmit={finish}><div className="action-section"><span className="action-label">手元に戻った金額</span><div className="finish-shortcuts"><button type="button" onClick={() => setCashOut(String(fromMinor(invested, session.currency)))}>±0 の金額</button><button type="button" onClick={() => setCashOut('0')}>全額失った</button></div><label className="money-input featured"><span>{session.currency}</span><input autoFocus required type="number" inputMode="decimal" min="0" step="any" value={cashOut} onChange={event => setCashOut(event.target.value)} placeholder="キャッシュアウト" /></label><label className="compact-money-field"><span>チップ・諸経費</span><input type="number" inputMode="decimal" min="0" step="any" value={tips} onChange={event => setTips(event.target.value)} /></label></div>
+      <div className={`settlement-preview ${result !== null && result < 0 ? 'loss' : ''}`}><span>今回の収支</span><strong>{result === null ? '—' : money(result, session.currency, true)}</strong><small>{result === null ? 'キャッシュアウトを入力すると即時に計算します' : yen === null ? '円換算レート未取得' : `参考円換算 ${formatYen(yen, true)}`}</small></div>
+      <p className="form-hint">{rate ? `${rate.date} 基準の参考レートをこの記録に固定します。` : '元通貨の収支は保存できます。円換算は未確定です。'}</p>
+      <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>まだ続ける</button><button className="primary-button action-primary" type="submit" disabled={cashOutMinor === null}><Check size={17} /> 収支を確定する</button></div></form>
+  </div></div>
+}
+
 function PlayerForm({ initial, onClose, onSave, onDelete }: { initial?: Player; onClose: () => void; onSave: (player: Player) => void; onDelete: (id: string) => void }) {
   const [name, setName] = useState(initial?.name || ''); const [venue, setVenue] = useState(initial?.venue || ''); const [tags, setTags] = useState(initial?.tags.join(', ') || ''); const [note, setNote] = useState(initial?.note || '')
   return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal compact" onMouseDown={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="プレイヤーメモ"><div className="modal-header"><div><div className="eyebrow">PLAYER NOTE</div><h2>{initial ? 'メモを編集' : 'プレイヤーメモ'}</h2></div><button className="icon-button" onClick={onClose} aria-label="閉じる"><X size={21} /></button></div><form onSubmit={e => { e.preventDefault(); if (!name.trim()) return; onSave({ id: initial?.id || crypto.randomUUID(), name: name.trim(), venue: venue.trim(), tags: tags.split(',').map(t => t.trim()).filter(Boolean), note: note.trim(), updatedAt: new Date().toISOString() }) }}><label className="field full">名前・仮名 <input required value={name} onChange={e => setName(e.target.value)} placeholder="例: 3番席の Michael" /></label><label className="field full">会場 <input value={venue} onChange={e => setVenue(e.target.value)} placeholder="例: Bellagio" /></label><label className="field full">タグ <input value={tags} onChange={e => setTags(e.target.value)} placeholder="タイト, 常連, アグレッシブ" /><small>カンマ区切りで入力</small></label><label className="field full">特徴・メモ <textarea rows={5} value={note} onChange={e => setNote(e.target.value)} placeholder="プレー傾向や次に覚えておきたいこと" /></label><div className="modal-actions">{initial && <button type="button" className="delete-button" onClick={() => onDelete(initial.id)}><Trash2 size={16} /> 削除</button>}<button className="primary-button" type="submit"><Check size={17} /> 保存する</button></div></form></div></div>
 }
 
-function SessionDetail({ session, currentRate, now, onClose, onEdit, onDelete, onFinish }: { session: Session; currentRate?: Rate; now: number; onClose: () => void; onEdit: () => void; onDelete: () => void; onFinish: () => void }) { const result = profit(session); const yen = asYen(result, session.currency, session.rate); const currentYen = asYen(result, session.currency, currentRate); return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal detail-modal" onMouseDown={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="セッション詳細"><div className="modal-header"><div><div className="eyebrow">SESSION DETAILS</div><h2>{session.venue}</h2><span className="detail-subtitle">{session.stakes} · {session.location || session.game} · {dateLabel((session.localDate || session.startedAt.slice(0, 10)) + 'T12:00:00')}</span></div><button className="icon-button" onClick={onClose} aria-label="閉じる"><X size={21} /></button></div><div className={`detail-result ${result < 0 ? 'loss' : ''}`}><small>{session.endedAt ? '現地通貨の収支' : '進行中のセッション'}</small><strong>{session.endedAt ? money(result, session.currency, true) : duration(session, now)}</strong><span>{session.endedAt ? `記録時の参考円換算 ${formatYen(yen, true)}` : `${money(session.buyIn + session.rebuy, session.currency)} 投入`}</span></div><div className="detail-list"><div><span>初回バイイン</span><strong>{money(session.buyIn, session.currency)}</strong></div><div><span>リバイ・追加購入</span><strong>{money(session.rebuy, session.currency)}</strong></div><div><span>キャッシュアウト</span><strong>{session.endedAt ? money(session.cashOut, session.currency) : '—'}</strong></div><div><span>チップ</span><strong>{money(session.tips, session.currency)}</strong></div><div><span>プレー時間</span><strong>{duration(session, now)}</strong></div></div>{session.rate && <div className="detail-rate"><Globe2 size={17} /><div><strong>1 {session.currency} = ¥{session.rate.rate.toFixed(2)}</strong><span>{session.rate.date} 基準 · {session.rate.provider} · 記録時に固定</span>{currentRate && currentYen !== null && yen !== null && currentYen !== yen && <span>現在の参考評価 {formatYen(currentYen, true)}（評価差 {formatYen(currentYen - yen, true)}）</span>}</div></div>}{session.note && <div className="detail-note"><Tag size={16} /><p>{session.note}</p></div>}<div className="modal-actions"><button className="delete-button" onClick={onDelete}><Trash2 size={16} /> 削除</button><button className="secondary-button" onClick={onEdit}>編集</button>{!session.endedAt && <button className="primary-button" onClick={onFinish}>終了を記録</button>}</div></div></div> }
+function SessionDetail({ session, currentRate, now, onClose, onEdit, onDelete, onQuickRebuy, onCustomRebuy, onFinish }: { session: Session; currentRate?: Rate; now: number; onClose: () => void; onEdit: () => void; onDelete: () => void; onQuickRebuy: () => void; onCustomRebuy: () => void; onFinish: () => void }) {
+  const result = profit(session)
+  const yen = asYen(result, session.currency, session.rate)
+  const currentYen = asYen(result, session.currency, currentRate)
+  const invested = session.buyIn + session.rebuy
+  const active = !session.endedAt
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className={`modal detail-modal ${active ? 'live-detail-modal' : ''}`} onMouseDown={event => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="セッション詳細">
+    <div className="modal-header"><div><div className="eyebrow">{active ? 'LIVE SESSION' : 'SESSION RESULT'}</div><h2>{session.venue}</h2><span className="detail-subtitle">{session.stakes} · {session.location || session.game} · {dateLabel((session.localDate || session.startedAt.slice(0, 10)) + 'T12:00:00')}</span></div><button className="icon-button" onClick={onClose} aria-label="閉じる"><X size={21} /></button></div>
+    {active ? <>
+      <section className="live-session-hero"><span className="live-status"><i /> PLAYING NOW</span><div className="live-clock">{duration(session, now)}</div><p>現在の投入合計</p><strong>{money(invested, session.currency)}</strong></section>
+      <div className="live-command-label">次の操作</div>
+      <div className="live-command-grid">
+        <button className="live-command quick" onClick={onQuickRebuy}><span className="live-command-icon"><Plus size={20} /></span><span><small>ワンタップ</small><strong>同額リバイ</strong><em>{money(session.buyIn, session.currency)}</em></span></button>
+        <button className="live-command" onClick={onCustomRebuy}><span className="live-command-icon"><Wallet size={20} /></span><span><small>金額を変える</small><strong>別の金額を追加</strong><em>自由入力</em></span><ChevronRight size={18} /></button>
+        <button className="live-command finish" onClick={onFinish}><span className="live-command-icon"><Check size={20} /></span><span><small>キャッシュアウトを入力</small><strong>セッションを終了</strong><em>収支を確定</em></span><ArrowRight size={18} /></button>
+      </div>
+      <div className="investment-breakdown"><div><span>初回バイイン</span><strong>{money(session.buyIn, session.currency)}</strong></div><div><span>追加済みリバイ</span><strong>{money(session.rebuy, session.currency)}</strong></div></div>
+    </> : <>
+      <div className={`detail-result ${result < 0 ? 'loss' : ''}`}><small>現地通貨の収支</small><strong>{money(result, session.currency, true)}</strong><span>記録時の参考円換算 {formatYen(yen, true)}</span></div>
+      <div className="detail-list"><div><span>初回バイイン</span><strong>{money(session.buyIn, session.currency)}</strong></div><div><span>リバイ・追加購入</span><strong>{money(session.rebuy, session.currency)}</strong></div><div><span>キャッシュアウト</span><strong>{money(session.cashOut, session.currency)}</strong></div><div><span>チップ</span><strong>{money(session.tips, session.currency)}</strong></div><div><span>プレー時間</span><strong>{duration(session, now)}</strong></div></div>
+      {session.rate && <div className="detail-rate"><Globe2 size={17} /><div><strong>1 {session.currency} = ¥{session.rate.rate.toFixed(2)}</strong><span>{session.rate.date} 基準 · {session.rate.provider} · 記録時に固定</span>{currentRate && currentYen !== null && yen !== null && currentYen !== yen && <span>現在の参考評価 {formatYen(currentYen, true)}（評価差 {formatYen(currentYen - yen, true)}）</span>}</div></div>}
+    </>}
+    {session.note && <div className="detail-note"><Tag size={16} /><p>{session.note}</p></div>}
+    <div className="modal-actions detail-actions"><button className="delete-button" onClick={onDelete}><Trash2 size={16} /> 削除</button><button className="secondary-button" onClick={onEdit}>基本情報を編集</button></div>
+  </div></div>
+}
 
 export default App
