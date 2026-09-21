@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { asYen, calendarDayTotal, fromMinor, money, profit, toMinor, type Session } from './domain'
+import { asYen, blindChoicesFor, calendarDayTotal, fromMinor, money, profit, toMinor, type Session } from './domain'
 
 const base: Session = { id: 's1', venue: 'Test', location: 'Las Vegas', game: 'ライブ', stakes: '$1/$3', currency: 'USD', startedAt: '2026-09-01T00:00:00Z', endedAt: '2026-09-01T04:00:00Z', buyIn: 30000, rebuy: 10000, cashOut: 50000, tips: 1000, note: '', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T04:00:00Z' }
 describe('currency accounting', () => {
@@ -12,5 +12,10 @@ describe('currency accounting', () => {
     expect(calendarDayTotal([usd, won, { ...won, id: 'running', endedAt: undefined }])).toBe(14000)
     expect(calendarDayTotal([{ ...usd, rate: undefined }])).toBeNull()
     expect(calendarDayTotal([{ ...won, endedAt: undefined }])).toBeNull()
+  })
+  it('offers locally scaled blind presets with hyphen notation', () => {
+    expect(blindChoicesFor('USD')).toContain('1-3')
+    expect(blindChoicesFor('KRW')).toContain('1,000-3,000')
+    expect(blindChoicesFor('USD').every(value => !value.includes('/'))).toBe(true)
   })
 })
