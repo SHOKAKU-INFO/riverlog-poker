@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3, CloudOff, Download, Globe2, LayoutDashboard, LogOut, MapPin, Menu, MoreHorizontal, Plus, Search, Settings2, ShieldCheck, Spade, Tag, Trash2, UserRound, Users, Wallet, X } from 'lucide-react'
+import { Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3, CloudOff, Copy, Download, ExternalLink, Globe2, LayoutDashboard, LogOut, MapPin, Menu, MoreHorizontal, Plus, Search, Settings2, ShieldCheck, Spade, Tag, Trash2, UserRound, Users, Wallet, X } from 'lucide-react'
 import type { User } from 'firebase/auth'
 import { asYen, calendarDayTotal, currencies, dateLabel, duration, fromMinor, hours, money, profit, samplePlayers, sampleSessions, shortDate, toMinor, type Currency, type Player, type Rate, type Session } from './domain'
 import { deletePlayerRemote, deleteSessionRemote, firebaseConfigured, loadRemote, login, logout, savePlayerRemote, saveSessionRemote, watchUser } from './firebase'
 import { getRate } from './rates'
+import { authErrorMessage, detectInAppBrowser, type InAppBrowser } from './browser'
 
 type Page = 'overview' | 'sessions' | 'calendar' | 'analytics' | 'players' | 'settings'
 const nav: { page: Page; label: string; icon: typeof LayoutDashboard }[] = [
@@ -33,6 +34,7 @@ function App() {
   const [selectedSession, setSelectedSession] = useState<Session | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [notice, setNotice] = useState('')
+  const [browserHelp, setBrowserHelp] = useState<InAppBrowser>(null)
   const [now, setNow] = useState(Date.now())
   const [search, setSearch] = useState('')
   const [month, setMonth] = useState(() => new Date().getMonth())
@@ -59,6 +61,8 @@ function App() {
   const wins = completed.filter(s => profit(s) > 0).length
   const liveRate = rates.USD
   const wonRate = rates.KRW
+  const restrictedBrowser = useMemo(() => detectInAppBrowser(navigator.userAgent), [])
+  useEffect(() => { if (restrictedBrowser && firebaseConfigured && authReady && !user) setBrowserHelp(restrictedBrowser) }, [restrictedBrowser, authReady, user])
 
   const saveSession = async (session: Session, successMessage?: string) => {
     const previous = sessions
@@ -89,6 +93,10 @@ function App() {
   }
   const navigate = (destination: Page) => { setPage(destination); setSidebarOpen(false); window.scrollTo(0, 0) }
   const startOrOpenSession = () => active ? setSelectedSession(active) : setSessionModal('new')
+  const beginLogin = () => {
+    if (restrictedBrowser) { setBrowserHelp(restrictedBrowser); return }
+    void login().catch(error => setNotice(authErrorMessage(error)))
+  }
   const exportCsv = () => {
     const rows = [['id','venue','location','game','stakes','currency','startedAt','endedAt','buyIn','rebuy','cashOut','tips','profit','rate','rateDate','note'], ...sessions.map(s => [s.id,s.venue,s.location,s.game,s.stakes,s.currency,s.startedAt,s.endedAt || '',fromMinor(s.buyIn,s.currency),fromMinor(s.rebuy,s.currency),fromMinor(s.cashOut,s.currency),fromMinor(s.tips,s.currency),fromMinor(profit(s),s.currency),s.rate?.rate || '',s.rate?.date || '',s.note])]
     const csv = '\ufeff' + rows.map(row => row.map(value => `"${String(value).replaceAll('"','""')}"`).join(',')).join('\r\n')
@@ -108,7 +116,7 @@ function App() {
       <header className="topbar"><div className="topbar-left"><button className="icon-button menu-button" onClick={() => setSidebarOpen(true)} aria-label="メニューを開く"><Menu size={22} /></button><span className="breadcrumb">RIVERLOG</span><ChevronRight size={15} className="breadcrumb-chevron" /><strong>{title[page]}</strong></div><div className="topbar-right"><div className="live-pill"><span className="pulse" /> {navigator.onLine ? 'SYNC READY' : 'OFFLINE'}</div><div className="topbar-avatar">{user?.photoURL ? <img src={user.photoURL} alt="" /> : <UserRound size={17} />}</div></div></header>
       <div className="content">
         {notice && <div className="notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="閉じる"><X size={16} /></button></div>}
-        {!user && <div className="demo-banner"><div><ShieldCheck size={17} /><span>{firebaseConfigured ? 'デモを表示中。Google でログインすると自分のデータを保存できます。' : 'デモモードです。Firebase 設定後、Google ログインとクラウド同期が使えます。'}</span></div>{firebaseConfigured && authReady && <button onClick={() => login().catch(() => setNotice('ログインできませんでした。承認済みドメインを確認してください。'))}>Google でログイン <ArrowRight size={15} /></button>}</div>}
+        {!user && <div className={`demo-banner ${restrictedBrowser ? 'browser-warning' : ''}`}><div><ShieldCheck size={17} /><span>{restrictedBrowser ? `${restrictedBrowser === 'line' ? 'LINE' : restrictedBrowser === 'instagram' ? 'Instagram' : 'Facebook'}内ブラウザを検出しました。Googleログインは外部ブラウザから行えます。` : firebaseConfigured ? 'デモを表示中。Google でログインすると自分のデータを保存できます。' : 'デモモードです。Firebase 設定後、Google ログインとクラウド同期が使えます。'}</span></div>{firebaseConfigured && authReady && <button onClick={beginLogin}>{restrictedBrowser ? '開き方を見る' : 'Google でログイン'} <ArrowRight size={15} /></button>}</div>}
 
         {page === 'overview' && <>
           <div className="page-heading"><div><div className="eyebrow">OVERVIEW / {new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'long' }).format(new Date())}</div><h1>おかえりなさい<span className="title-period">.</span></h1><p>プレーと収支を、旅の流れに沿って振り返る。</p></div><button className="primary-button" onClick={startOrOpenSession}>{active ? <Clock3 size={18} /> : <Plus size={18} />} {active ? '進行中を開く' : 'セッションを開始'}</button></div>
@@ -145,7 +153,7 @@ function App() {
 
         {page === 'players' && <><div className="page-heading"><div><div className="eyebrow">TABLE INTELLIGENCE</div><h1>プレイヤーメモ<span className="title-period">.</span></h1><p>次に同じ卓に座ったとき、思い出せるように。</p></div><button className="primary-button" onClick={() => setPlayerModal('new')}><Plus size={18} /> メモを追加</button></div><div className="filter-bar"><div className="search-box"><Search size={18} /><input placeholder="名前・会場・タグで検索" value={search} onChange={e => setSearch(e.target.value)} /></div><span>{players.length} 人のメモ</span></div><div className="player-grid">{players.filter(p => `${p.name} ${p.venue} ${p.tags.join(' ')} ${p.note}`.toLowerCase().includes(search.toLowerCase())).map(p => <button className="player-card" key={p.id} onClick={() => setPlayerModal(p)}><div className="player-card-top"><div className="player-avatar">{p.name.slice(0, 1).toUpperCase()}</div><MoreHorizontal size={21} /></div><h3>{p.name}</h3><p><Globe2 size={14} /> {p.venue || '会場未設定'}</p><div className="tags">{p.tags.map(tag => <span key={tag}>{tag}</span>)}</div><div className="player-note">{p.note || 'メモはまだありません'}</div><small>更新 {shortDate(p.updatedAt)}</small></button>)}{!players.length && <Empty message="プレイヤーメモがありません。" />}</div></>}
 
-        {page === 'settings' && <><div className="page-heading"><div><div className="eyebrow">PREFERENCES & DATA</div><h1>設定・データ<span className="title-period">.</span></h1><p>記録を自分の手元でも管理する。</p></div></div><div className="settings-grid"><section className="panel"><SectionHeading label="ACCOUNT" title="アカウント" /><div className="setting-row"><div className="setting-icon"><UserRound size={20} /></div><div><strong>{user?.displayName || 'デモモード'}</strong><small>{user?.email || 'この端末のブラウザにデータを保存中'}</small></div></div>{firebaseConfigured && !user && <button className="secondary-button wide" onClick={() => login().catch(() => setNotice('ログインできませんでした'))}>Google でログイン <ArrowRight size={16} /></button>}{user && <button className="secondary-button wide" onClick={logout}>ログアウト <LogOut size={16} /></button>}</section><section className="panel"><SectionHeading label="YOUR DATA" title="データの持ち出し" /><p className="settings-description">すべてのセッションを CSV でダウンロードできます。データにはメモも含まれます。</p><button className="secondary-button wide" onClick={exportCsv}><Download size={17} /> CSV をダウンロード</button></section><section className="panel"><SectionHeading label="CURRENCY" title="為替データ" /><div className="setting-row"><div className="setting-icon"><Globe2 size={20} /></div><div><strong>Frankfurter 日次参考レート</strong><small>基準表示通貨: JPY · 実際の両替レートとは異なります</small></div></div><a className="text-link" href="https://frankfurter.dev/" target="_blank" rel="noreferrer">データ提供元を見る <ArrowRight size={15} /></a></section><section className="panel"><SectionHeading label="PRIVACY" title="プライバシー" /><div className="setting-row"><div className="setting-icon"><CloudOff size={20} /></div><div><strong>{user ? 'Firestore に保存' : 'この端末に保存'}</strong><small>プレイヤーメモは公開されません。画像の保存は行いません。</small></div></div></section></div></>}
+        {page === 'settings' && <><div className="page-heading"><div><div className="eyebrow">PREFERENCES & DATA</div><h1>設定・データ<span className="title-period">.</span></h1><p>記録を自分の手元でも管理する。</p></div></div><div className="settings-grid"><section className="panel"><SectionHeading label="ACCOUNT" title="アカウント" /><div className="setting-row"><div className="setting-icon"><UserRound size={20} /></div><div><strong>{user?.displayName || 'デモモード'}</strong><small>{user?.email || 'この端末のブラウザにデータを保存中'}</small></div></div>{firebaseConfigured && !user && <button className="secondary-button wide" onClick={beginLogin}>Google でログイン <ArrowRight size={16} /></button>}{user && <button className="secondary-button wide" onClick={logout}>ログアウト <LogOut size={16} /></button>}</section><section className="panel"><SectionHeading label="YOUR DATA" title="データの持ち出し" /><p className="settings-description">すべてのセッションを CSV でダウンロードできます。データにはメモも含まれます。</p><button className="secondary-button wide" onClick={exportCsv}><Download size={17} /> CSV をダウンロード</button></section><section className="panel"><SectionHeading label="CURRENCY" title="為替データ" /><div className="setting-row"><div className="setting-icon"><Globe2 size={20} /></div><div><strong>Frankfurter 日次参考レート</strong><small>基準表示通貨: JPY · 実際の両替レートとは異なります</small></div></div><a className="text-link" href="https://frankfurter.dev/" target="_blank" rel="noreferrer">データ提供元を見る <ArrowRight size={15} /></a></section><section className="panel"><SectionHeading label="PRIVACY" title="プライバシー" /><div className="setting-row"><div className="setting-icon"><CloudOff size={20} /></div><div><strong>{user ? 'Firestore に保存' : 'この端末に保存'}</strong><small>プレイヤーメモは公開されません。画像の保存は行いません。</small></div></div></section></div></>}
       </div>
     </main>
     <nav className="mobile-nav" aria-label="モバイルメニュー">{nav.slice(0, 5).map(item => <button key={item.page} className={page === item.page ? 'active' : ''} onClick={() => navigate(item.page)}><item.icon size={21} /><span>{item.page === 'overview' ? 'ホーム' : item.page === 'players' ? 'メモ' : item.label}</span></button>)}</nav>
@@ -153,6 +161,7 @@ function App() {
     {sessionAction?.kind === 'rebuy' && <RebuyForm session={sessionAction.session} onClose={() => setSessionAction(null)} onSave={(amount) => { const session = sessionAction.session; void saveSession({ ...session, rebuy: session.rebuy + amount, updatedAt: new Date().toISOString() }, `${money(amount, session.currency)} のリバイを追加しました`) }} />}
     {sessionAction?.kind === 'finish' && <FinishSessionForm session={sessionAction.session} rate={rates[sessionAction.session.currency]} onClose={() => setSessionAction(null)} onSave={session => void saveSession(session, 'セッションを終了し、収支を記録しました')} />}
     {playerModal && <PlayerForm initial={playerModal === 'new' ? undefined : playerModal} onClose={() => setPlayerModal(null)} onSave={savePlayer} onDelete={removePlayer} />}
+    {browserHelp && <ExternalBrowserGuide browser={browserHelp} onClose={() => setBrowserHelp(null)} />}
     {selectedSession && <SessionDetail session={selectedSession} currentRate={rates[selectedSession.currency]} now={now} onClose={() => setSelectedSession(null)} onEdit={() => { setSessionModal(selectedSession); setSelectedSession(null) }} onDelete={() => removeSession(selectedSession.id)} onQuickRebuy={() => addMatchingRebuy(selectedSession)} onCustomRebuy={() => { setSessionAction({ kind: 'rebuy', session: selectedSession }); setSelectedSession(null) }} onFinish={() => { setSessionAction({ kind: 'finish', session: selectedSession }); setSelectedSession(null) }} />}
   </div>
 }
@@ -298,6 +307,29 @@ function FinishSessionForm({ session, rate, onClose, onSave }: { session: Sessio
       <div className={`settlement-preview ${result !== null && result < 0 ? 'loss' : ''}`}><span>今回の収支</span><strong>{result === null ? '—' : money(result, session.currency, true)}</strong><small>{result === null ? 'キャッシュアウトを入力すると即時に計算します' : yen === null ? '円換算レート未取得' : `参考円換算 ${formatYen(yen, true)}`}</small></div>
       <p className="form-hint">{rate ? `${rate.date} 基準の参考レートをこの記録に固定します。` : '元通貨の収支は保存できます。円換算は未確定です。'}</p>
       <div className="modal-actions"><button type="button" className="secondary-button" onClick={onClose}>まだ続ける</button><button className="primary-button action-primary" type="submit" disabled={cashOutMinor === null}><Check size={17} /> 収支を確定する</button></div></form>
+  </div></div>
+}
+
+function ExternalBrowserGuide({ browser, onClose }: { browser: Exclude<InAppBrowser, null>; onClose: () => void }) {
+  const [copyState, setCopyState] = useState<'idle' | 'done' | 'failed'>('idle')
+  const url = window.location.href
+  const isAndroid = /android/i.test(navigator.userAgent)
+  const intentUrl = `intent://${window.location.host}${window.location.pathname}${window.location.search}#Intent;scheme=https;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;end`
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); setCopyState('done') }
+    catch { setCopyState('failed') }
+  }
+  const browserName = browser === 'line' ? 'LINE' : browser === 'instagram' ? 'Instagram' : 'Facebook'
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal external-browser-modal" onMouseDown={event => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="外部ブラウザで開く">
+    <div className="external-browser-icon"><ExternalLink size={25} /></div>
+    <button className="icon-button external-browser-close" onClick={onClose} aria-label="閉じる"><X size={21} /></button>
+    <div className="eyebrow">SECURE GOOGLE LOGIN</div>
+    <h2>ブラウザを切り替えて<br />ログイン</h2>
+    <p>{browserName}内ブラウザでは、Googleのパスワードやパスキーが制限される場合があります。</p>
+    {isAndroid && <a className="primary-button external-open-button" href={intentUrl}><ExternalLink size={17} /> 端末のブラウザで開く</a>}
+    <div className="external-browser-steps"><div><strong>1</strong><span>{browserName}の <b>…</b> メニューを開く</span></div><div><strong>2</strong><span><b>デフォルトのブラウザで開く</b>、または <b>Safariで開く</b> を選ぶ</span></div><div><strong>3</strong><span>RIVERLOGで「Googleでログイン」を押す</span></div></div>
+    <button className={`copy-url-button ${copyState === 'done' ? 'done' : ''}`} onClick={copy}><Copy size={16} /><span>{copyState === 'done' ? 'URLをコピーしました' : copyState === 'failed' ? 'コピーできませんでした' : 'URLをコピー'}</span></button>
+    <small>インストール済みの場合は、端末の設定によりPWAが開きます。</small>
   </div></div>
 }
 
