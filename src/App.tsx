@@ -1,21 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3, CloudOff, Copy, Download, ExternalLink, Globe2, LayoutDashboard, LogOut, MapPin, Menu, MoreHorizontal, Plus, Search, Settings2, ShieldCheck, Spade, Tag, Trash2, UserRound, Users, Wallet, X } from 'lucide-react'
+import { Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3, CloudOff, Copy, Download, ExternalLink, Globe2, LayoutDashboard, LogOut, MapPin, Menu, MoreHorizontal, Plane, Plus, Search, Settings2, ShieldCheck, Spade, Tag, Trash2, UserRound, Users, Wallet, X } from 'lucide-react'
 import type { User } from 'firebase/auth'
-import { asYen, blindChoicesFor, calendarDayTotal, currencies, dateLabel, duration, fromMinor, hours, money, profit, samplePlayers, sampleSessions, shortDate, toMinor, type Currency, type Player, type Rate, type Session } from './domain'
-import { deletePlayerRemote, deleteSessionRemote, firebaseConfigured, loadRemote, login, logout, savePlayerRemote, saveSessionRemote, watchUser } from './firebase'
+import { asYen, blindChoicesFor, calendarDayTotal, currencies, dateLabel, duration, fromMinor, hours, money, profit, samplePlayers, sampleSessions, sampleTrips, shortDate, toMinor, type Currency, type Player, type Rate, type Session, type Trip } from './domain'
+import { deletePlayerRemote, deleteSessionRemote, deleteTripRemote, firebaseConfigured, loadRemote, login, logout, savePlayerRemote, saveSessionRemote, saveTripRemote, watchUser } from './firebase'
 import { getRate } from './rates'
 import { authErrorMessage, detectInAppBrowser, type InAppBrowser } from './browser'
+import { TripsPage } from './Trips'
 
-type Page = 'overview' | 'sessions' | 'calendar' | 'analytics' | 'players' | 'settings'
+type Page = 'overview' | 'sessions' | 'trips' | 'calendar' | 'analytics' | 'players' | 'settings'
 const nav: { page: Page; label: string; icon: typeof LayoutDashboard }[] = [
   { page: 'overview', label: 'ダッシュボード', icon: LayoutDashboard },
   { page: 'sessions', label: 'セッション', icon: Spade },
+  { page: 'trips', label: '遠征収支', icon: Plane },
   { page: 'calendar', label: 'カレンダー', icon: CalendarDays },
   { page: 'analytics', label: '収支分析', icon: BarChart3 },
   { page: 'players', label: 'プレイヤーメモ', icon: Users },
   { page: 'settings', label: '設定・データ', icon: Settings2 },
 ]
-const title: Record<Page, string> = { overview: 'ダッシュボード', sessions: 'セッション', calendar: 'カレンダー', analytics: '収支分析', players: 'プレイヤーメモ', settings: '設定・データ' }
+const title: Record<Page, string> = { overview: 'ダッシュボード', sessions: 'セッション', trips: '遠征収支', calendar: 'カレンダー', analytics: '収支分析', players: 'プレイヤーメモ', settings: '設定・データ' }
 const readLocal = <T,>(key: string, fallback: T): T => { try { const value = localStorage.getItem(key); return value ? JSON.parse(value) as T : fallback } catch { return fallback } }
 const today = () => new Date().toISOString().slice(0, 10)
 const localInputDate = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
@@ -27,6 +29,7 @@ function App() {
   const [authReady, setAuthReady] = useState(!firebaseConfigured)
   const [sessions, setSessions] = useState<Session[]>(() => readLocal('riverlog-demo-sessions', sampleSessions))
   const [players, setPlayers] = useState<Player[]>(() => readLocal('riverlog-demo-players', samplePlayers))
+  const [trips, setTrips] = useState<Trip[]>(() => readLocal('riverlog-demo-trips', sampleTrips))
   const [rates, setRates] = useState<Partial<Record<Currency, Rate>>>({})
   const [sessionModal, setSessionModal] = useState<Session | 'new' | null>(null)
   const [sessionAction, setSessionAction] = useState<{ kind: 'rebuy' | 'finish'; session: Session } | null>(null)
@@ -45,12 +48,13 @@ function App() {
   useEffect(() => { if (!firebaseConfigured) return; return watchUser(async next => {
     setUser(next); setAuthReady(true)
     if (next) {
-      try { const data = await loadRemote(next.uid); setSessions(data.sessions); setPlayers(data.players) }
+      try { const data = await loadRemote(next.uid); setSessions(data.sessions); setPlayers(data.players); setTrips(data.trips) }
       catch { setNotice('データの読み込みに失敗しました。接続を確認してください。') }
-    } else { setSessions(readLocal('riverlog-demo-sessions', sampleSessions)); setPlayers(readLocal('riverlog-demo-players', samplePlayers)) }
+    } else { setSessions(readLocal('riverlog-demo-sessions', sampleSessions)); setPlayers(readLocal('riverlog-demo-players', samplePlayers)); setTrips(readLocal('riverlog-demo-trips', sampleTrips)) }
   }) }, [])
   useEffect(() => { if (!user) localStorage.setItem('riverlog-demo-sessions', JSON.stringify(sessions)) }, [sessions, user])
   useEffect(() => { if (!user) localStorage.setItem('riverlog-demo-players', JSON.stringify(players)) }, [players, user])
+  useEffect(() => { if (!user) localStorage.setItem('riverlog-demo-trips', JSON.stringify(trips)) }, [trips, user])
   useEffect(() => { const codes = [...new Set<Currency>(['USD', 'KRW', ...sessions.map(s => s.currency)])].filter(code => code !== 'JPY'); codes.forEach(code => getRate(code).then(rate => { if (rate) setRates(old => ({ ...old, [code]: rate })) })) }, [sessions])
 
   const sorted = useMemo(() => [...sessions].sort((a, b) => b.startedAt.localeCompare(a.startedAt)), [sessions])
@@ -91,16 +95,33 @@ function App() {
     const previous = players; setPlayers(current => current.filter(p => p.id !== id)); setPlayerModal(null)
     if (user) try { await deletePlayerRemote(user.uid, id) } catch { setPlayers(previous); setNotice('削除に失敗しました') }
   }
+  const saveTrip = async (trip: Trip, successMessage?: string) => {
+    const previous = trips; setTrips(current => [trip, ...current.filter(item => item.id !== trip.id)])
+    if (user) try { await saveTripRemote(user.uid, trip) } catch { setTrips(previous); setNotice('遠征の保存に失敗しました'); return }
+    setNotice(successMessage || (user ? '遠征を保存しました' : '端末内のデモデータに保存しました'))
+  }
+  const removeTrip = async (id: string) => {
+    if (!window.confirm('この遠征と旅費を削除しますか？セッション記録は残ります。')) return
+    const previous = trips; setTrips(current => current.filter(item => item.id !== id))
+    if (user) try { await deleteTripRemote(user.uid, id) } catch { setTrips(previous); setNotice('遠征の削除に失敗しました') }
+  }
   const navigate = (destination: Page) => { setPage(destination); setSidebarOpen(false); window.scrollTo(0, 0) }
   const startOrOpenSession = () => active ? setSelectedSession(active) : setSessionModal('new')
   const beginLogin = () => {
     if (restrictedBrowser) { setBrowserHelp(restrictedBrowser); return }
     void login().catch(error => setNotice(authErrorMessage(error)))
   }
+  const downloadCsv = (rows: (string | number)[][], filename: string) => {
+    const csv = '\ufeff' + rows.map(row => row.map(value => `"${String(value).replaceAll('"','""')}"`).join(',')).join('\r\n')
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url)
+  }
   const exportCsv = () => {
     const rows = [['id','venue','location','game','blinds','currency','startedAt','endedAt','buyIn','rebuy','cashOut','tips','profit','rate','rateDate','note'], ...sessions.map(s => [s.id,s.venue,s.location,s.game,s.stakes,s.currency,s.startedAt,s.endedAt || '',fromMinor(s.buyIn,s.currency),fromMinor(s.rebuy,s.currency),fromMinor(s.cashOut,s.currency),fromMinor(s.tips,s.currency),fromMinor(profit(s),s.currency),s.rate?.rate || '',s.rate?.date || '',s.note])]
-    const csv = '\ufeff' + rows.map(row => row.map(value => `"${String(value).replaceAll('"','""')}"`).join(',')).join('\r\n')
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); const a = document.createElement('a'); a.href = url; a.download = `riverlog-sessions-${today()}.csv`; a.click(); URL.revokeObjectURL(url)
+    downloadCsv(rows, `riverlog-sessions-${today()}.csv`)
+  }
+  const exportTripCsv = () => {
+    const rows = [['tripId','tripName','destination','tripStart','tripEnd','expenseId','category','paidAt','currency','amount','rateToJPY','rateDate','note'], ...trips.flatMap(trip => trip.expenses.map(expense => [trip.id,trip.name,trip.destination,trip.startDate,trip.endDate,expense.id,expense.category,expense.spentAt,expense.currency,fromMinor(expense.amount,expense.currency),expense.rate?.rate || '',expense.rate?.date || '',expense.note]))]
+    downloadCsv(rows, `riverlog-trip-expenses-${today()}.csv`)
   }
 
   return <div className="app-shell">
@@ -124,10 +145,12 @@ function App() {
           <section className="insight-row"><div className="mini-stat"><div className="mini-icon green"><ArrowUpRight size={19} /></div><div><small>勝率</small><strong>{completed.length ? `${Math.round(wins / completed.length * 100)}%` : '—'}</strong></div><span>WIN RATE</span></div><div className="mini-stat"><div className="mini-icon amber"><Spade size={19} /></div><div><small>記録したセッション</small><strong>{sessions.length}回</strong></div><span>SESSIONS</span></div><div className="mini-stat"><div className="mini-icon blue"><Globe2 size={19} /></div><div><small>使用した通貨</small><strong>{new Set(sessions.map(s => s.currency)).size}種類</strong></div><span>CURRENCIES</span></div></section>
           {active && <section className="active-session"><button className="active-session-summary" onClick={() => setSelectedSession(active)}><span className="active-label"><span className="pulse" /> LIVE SESSION</span><h3>{active.venue} <span>{active.stakes}</span></h3><p>{duration(active, now)} プレー中 · {money(active.buyIn + active.rebuy, active.currency)} 投入</p></button><div className="active-actions"><button className="active-quick-button" onClick={() => addMatchingRebuy(active)}><Plus size={17} /><span>同額リバイ<small>{money(active.buyIn, active.currency)}</small></span></button><button className="active-quick-button" onClick={() => setSessionAction({ kind: 'rebuy', session: active })}><Wallet size={17} /><span>別の金額<small>自由入力</small></span></button><button className="active-finish-button" onClick={() => setSessionAction({ kind: 'finish', session: active })}>終了する <ArrowRight size={16} /></button></div></section>}
           <section className="section"><SectionHeading label="RECENT ACTIVITY" title="最近のセッション" action="すべて見る" onAction={() => navigate('sessions')} /><div className="session-list">{sorted.slice(0, 4).map(s => <SessionRow key={s.id} session={s} onClick={() => setSelectedSession(s)} />)}{!sorted.length && <Empty message="まだセッションがありません。最初の記録を作成しましょう。" />}</div></section>
-          <div className="lower-grid"><section className="panel"><SectionHeading label="CURRENCY NOTE" title="円換算について" /><div className="rate-panel"><div className="rate-icon"><Globe2 size={23} /></div><div className="rate-values"><strong>{liveRate ? `1 USD ≈ ¥${liveRate.rate.toFixed(2)}` : 'USD レートを取得できませんでした'}</strong><strong>{wonRate ? `100 KRW ≈ ¥${(wonRate.rate * 100).toFixed(2)}` : 'KRW レートを取得できませんでした'}</strong><p>{liveRate || wonRate ? `${liveRate?.date || wonRate?.date} 基準 · Frankfurter の日次参考レート` : '現地通貨の記録は引き続き利用できます。'}</p></div></div><p className="panel-note">記録時のレートを固定保存します。実際の両替・決済レートとは異なります。</p></section><section className="panel"><SectionHeading label="QUICK ACCESS" title="次の記録へ" /><button className="quick-link" onClick={() => setPlayerModal('new')}><span className="quick-icon"><Users size={20} /></span><span><strong>プレイヤーメモを追加</strong><small>卓で気づいた特徴を忘れずに</small></span><ArrowRight size={18} /></button><button className="quick-link" onClick={() => navigate('calendar')}><span className="quick-icon"><CalendarDays size={20} /></span><span><strong>カレンダーを開く</strong><small>旅のプレー履歴を日付で探す</small></span><ArrowRight size={18} /></button></section></div>
+          <div className="lower-grid"><section className="panel"><SectionHeading label="CURRENCY NOTE" title="円換算について" /><div className="rate-panel"><div className="rate-icon"><Globe2 size={23} /></div><div className="rate-values"><strong>{liveRate ? `1 USD ≈ ¥${liveRate.rate.toFixed(2)}` : 'USD レートを取得できませんでした'}</strong><strong>{wonRate ? `100 KRW ≈ ¥${(wonRate.rate * 100).toFixed(2)}` : 'KRW レートを取得できませんでした'}</strong><p>{liveRate || wonRate ? `${liveRate?.date || wonRate?.date} 基準 · Frankfurter の日次参考レート` : '現地通貨の記録は引き続き利用できます。'}</p></div></div><p className="panel-note">記録時のレートを固定保存します。実際の両替・決済レートとは異なります。</p></section><section className="panel"><SectionHeading label="QUICK ACCESS" title="次の記録へ" /><button className="quick-link" onClick={() => navigate('trips')}><span className="quick-icon"><Plane size={20} /></span><span><strong>遠征全体の収支を見る</strong><small>ポーカー収支から宿泊・食事・交通費を引く</small></span><ArrowRight size={18} /></button><button className="quick-link" onClick={() => setPlayerModal('new')}><span className="quick-icon"><Users size={20} /></span><span><strong>プレイヤーメモを追加</strong><small>卓で気づいた特徴を忘れずに</small></span><ArrowRight size={18} /></button><button className="quick-link" onClick={() => navigate('calendar')}><span className="quick-icon"><CalendarDays size={20} /></span><span><strong>カレンダーを開く</strong><small>旅のプレー履歴を日付で探す</small></span><ArrowRight size={18} /></button></section></div>
         </>}
 
         {page === 'sessions' && <><div className="page-heading"><div><div className="eyebrow">YOUR PLAY HISTORY</div><h1>セッション<span className="title-period">.</span></h1><p>現地通貨と円換算、両方の視点で記録する。</p></div><button className="primary-button" onClick={startOrOpenSession}>{active ? <Clock3 size={18} /> : <Plus size={18} />} {active ? '進行中を開く' : 'セッションを開始'}</button></div><div className="filter-bar"><div className="search-box"><Search size={18} /><input placeholder="会場・ゲームで検索" value={search} onChange={e => setSearch(e.target.value)} /></div><span>{sorted.length} 件の記録</span></div><div className="session-list page-list">{sorted.filter(s => `${s.venue} ${s.game} ${s.location}`.toLowerCase().includes(search.toLowerCase())).map(s => <SessionRow key={s.id} session={s} onClick={() => setSelectedSession(s)} />)}{!sessions.length && <Empty message="まだセッションがありません。" />}</div></>}
+
+        {page === 'trips' && <TripsPage trips={trips} sessions={sessions} onSave={(trip, message) => void saveTrip(trip, message)} onDelete={id => void removeTrip(id)} />}
 
         {page === 'calendar' && <>
           <div className="page-heading"><div><div className="eyebrow">PLAY CALENDAR</div><h1>カレンダー<span className="title-period">.</span></h1><p>日ごとの収支合計を、記録時のレートで表示する。</p></div><button className="primary-button" onClick={startOrOpenSession}>{active ? <Clock3 size={18} /> : <Plus size={18} />} {active ? '進行中を開く' : 'セッションを開始'}</button></div>
@@ -153,10 +176,10 @@ function App() {
 
         {page === 'players' && <><div className="page-heading"><div><div className="eyebrow">TABLE INTELLIGENCE</div><h1>プレイヤーメモ<span className="title-period">.</span></h1><p>次に同じ卓に座ったとき、思い出せるように。</p></div><button className="primary-button" onClick={() => setPlayerModal('new')}><Plus size={18} /> メモを追加</button></div><div className="filter-bar"><div className="search-box"><Search size={18} /><input placeholder="名前・会場・タグで検索" value={search} onChange={e => setSearch(e.target.value)} /></div><span>{players.length} 人のメモ</span></div><div className="player-grid">{players.filter(p => `${p.name} ${p.venue} ${p.tags.join(' ')} ${p.note}`.toLowerCase().includes(search.toLowerCase())).map(p => <button className="player-card" key={p.id} onClick={() => setPlayerModal(p)}><div className="player-card-top"><div className="player-avatar">{p.name.slice(0, 1).toUpperCase()}</div><MoreHorizontal size={21} /></div><h3>{p.name}</h3><p><Globe2 size={14} /> {p.venue || '会場未設定'}</p><div className="tags">{p.tags.map(tag => <span key={tag}>{tag}</span>)}</div><div className="player-note">{p.note || 'メモはまだありません'}</div><small>更新 {shortDate(p.updatedAt)}</small></button>)}{!players.length && <Empty message="プレイヤーメモがありません。" />}</div></>}
 
-        {page === 'settings' && <><div className="page-heading"><div><div className="eyebrow">PREFERENCES & DATA</div><h1>設定・データ<span className="title-period">.</span></h1><p>記録を自分の手元でも管理する。</p></div></div><div className="settings-grid"><section className="panel"><SectionHeading label="ACCOUNT" title="アカウント" /><div className="setting-row"><div className="setting-icon"><UserRound size={20} /></div><div><strong>{user?.displayName || 'デモモード'}</strong><small>{user?.email || 'この端末のブラウザにデータを保存中'}</small></div></div>{firebaseConfigured && !user && <button className="secondary-button wide" onClick={beginLogin}>Google でログイン <ArrowRight size={16} /></button>}{user && <button className="secondary-button wide" onClick={logout}>ログアウト <LogOut size={16} /></button>}</section><section className="panel"><SectionHeading label="YOUR DATA" title="データの持ち出し" /><p className="settings-description">すべてのセッションを CSV でダウンロードできます。データにはメモも含まれます。</p><button className="secondary-button wide" onClick={exportCsv}><Download size={17} /> CSV をダウンロード</button></section><section className="panel"><SectionHeading label="CURRENCY" title="為替データ" /><div className="setting-row"><div className="setting-icon"><Globe2 size={20} /></div><div><strong>Frankfurter 日次参考レート</strong><small>基準表示通貨: JPY · 実際の両替レートとは異なります</small></div></div><a className="text-link" href="https://frankfurter.dev/" target="_blank" rel="noreferrer">データ提供元を見る <ArrowRight size={15} /></a></section><section className="panel"><SectionHeading label="PRIVACY" title="プライバシー" /><div className="setting-row"><div className="setting-icon"><CloudOff size={20} /></div><div><strong>{user ? 'Firestore に保存' : 'この端末に保存'}</strong><small>プレイヤーメモは公開されません。画像の保存は行いません。</small></div></div></section></div></>}
+        {page === 'settings' && <><div className="page-heading"><div><div className="eyebrow">PREFERENCES & DATA</div><h1>設定・データ<span className="title-period">.</span></h1><p>記録を自分の手元でも管理する。</p></div></div><div className="settings-grid"><section className="panel"><SectionHeading label="ACCOUNT" title="アカウント" /><div className="setting-row"><div className="setting-icon"><UserRound size={20} /></div><div><strong>{user?.displayName || 'デモモード'}</strong><small>{user?.email || 'この端末のブラウザにデータを保存中'}</small></div></div>{firebaseConfigured && !user && <button className="secondary-button wide" onClick={beginLogin}>Google でログイン <ArrowRight size={16} /></button>}{user && <button className="secondary-button wide" onClick={logout}>ログアウト <LogOut size={16} /></button>}</section><section className="panel"><SectionHeading label="YOUR DATA" title="データの持ち出し" /><p className="settings-description">セッション記録と遠征の費用明細を、それぞれ CSV で保存できます。</p><div className="export-buttons"><button className="secondary-button wide" onClick={exportCsv}><Download size={17} /> セッションCSV</button><button className="secondary-button wide" onClick={exportTripCsv}><Download size={17} /> 旅費CSV</button></div></section><section className="panel"><SectionHeading label="CURRENCY" title="為替データ" /><div className="setting-row"><div className="setting-icon"><Globe2 size={20} /></div><div><strong>Frankfurter 日次参考レート</strong><small>基準表示通貨: JPY · 実際の両替レートとは異なります</small></div></div><a className="text-link" href="https://frankfurter.dev/" target="_blank" rel="noreferrer">データ提供元を見る <ArrowRight size={15} /></a></section><section className="panel"><SectionHeading label="PRIVACY" title="プライバシー" /><div className="setting-row"><div className="setting-icon"><CloudOff size={20} /></div><div><strong>{user ? 'Firestore に保存' : 'この端末に保存'}</strong><small>プレイヤーメモと遠征費用は公開されません。画像の保存は行いません。</small></div></div></section></div></>}
       </div>
     </main>
-    <nav className="mobile-nav" aria-label="モバイルメニュー">{nav.slice(0, 5).map(item => <button key={item.page} className={page === item.page ? 'active' : ''} onClick={() => navigate(item.page)}><item.icon size={21} /><span>{item.page === 'overview' ? 'ホーム' : item.page === 'players' ? 'メモ' : item.label}</span></button>)}</nav>
+    <nav className="mobile-nav" aria-label="モバイルメニュー">{nav.slice(0, 5).map(item => <button key={item.page} className={page === item.page ? 'active' : ''} onClick={() => navigate(item.page)}><item.icon size={21} /><span>{item.page === 'overview' ? 'ホーム' : item.page === 'trips' ? '遠征' : item.page === 'analytics' ? '分析' : item.label}</span></button>)}</nav>
     {sessionModal && <SessionForm initial={sessionModal === 'new' ? undefined : sessionModal} sessions={sessions} rate={rates} onClose={() => setSessionModal(null)} onSave={saveSession} />}
     {sessionAction?.kind === 'rebuy' && <RebuyForm session={sessionAction.session} onClose={() => setSessionAction(null)} onSave={(amount) => { const session = sessionAction.session; void saveSession({ ...session, rebuy: session.rebuy + amount, updatedAt: new Date().toISOString() }, `${money(amount, session.currency)} のリバイを追加しました`) }} />}
     {sessionAction?.kind === 'finish' && <FinishSessionForm session={sessionAction.session} rate={rates[sessionAction.session.currency]} onClose={() => setSessionAction(null)} onSave={session => void saveSession(session, 'セッションを終了し、収支を記録しました')} />}
