@@ -19,7 +19,7 @@ export interface Rate { rate: number; date: string; fetchedAt: string; provider:
 export interface Session {
   id: string; venue: string; location: string; game: 'ライブ' | 'オンライン'; stakes: string; currency: Currency
   startedAt: string; localDate?: string; endedAt?: string; buyIn: number; rebuy: number; cashOut: number; tips: number
-  note: string; tripId?: string; rate?: Rate; createdAt: string; updatedAt: string
+  note: string; format?: 'cash' | 'tournament'; entrants?: number; prizePool?: number; tripId?: string; rate?: Rate; createdAt: string; updatedAt: string
 }
 export interface Player { id: string; name: string; venue: string; tags: string[]; note: string; updatedAt: string }
 export type ExpenseCategory = '宿泊' | '食事' | '交通' | 'その他'
@@ -29,6 +29,10 @@ export interface Trip { id: string; name: string; destination: string; startDate
 export const toMinor = (value: number, currency: Currency) => Math.round(value * 10 ** decimals[currency])
 export const fromMinor = (value: number, currency: Currency) => value / 10 ** decimals[currency]
 export const profit = (session: Session) => session.cashOut - session.buyIn - session.rebuy - session.tips
+export const sessionFormat = (session: Session) => session.format || 'cash'
+export const tournamentAverageReturn = (session: Session) => sessionFormat(session) === 'tournament' && session.entrants && session.entrants > 0 ? Math.round((session.prizePool ?? session.buyIn * session.entrants) / session.entrants) : null
+export const tournamentAverageEv = (session: Session) => { const average = tournamentAverageReturn(session); return average === null ? null : average - session.buyIn }
+export const sessionRoi = (session: Session) => { const invested = session.buyIn + session.rebuy + session.tips; return invested > 0 ? profit(session) / invested : null }
 export const asYen = (minor: number, currency: Currency, rate?: Rate) => currency === 'JPY' ? minor : rate ? Math.round(fromMinor(minor, currency) * rate.rate) : null
 export const calendarDayTotal = (sessions: Session[]) => {
   const completed = sessions.filter(session => session.endedAt)
