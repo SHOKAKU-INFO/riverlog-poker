@@ -14,8 +14,6 @@ service cloud.firestore {
         && d.cashOut is int && d.cashOut >= 0
         && d.tips is int && d.tips >= 0
         && (!('format' in d) || d.format in ['cash','tournament'])
-        && (!('entrants' in d) || (d.entrants is int && d.entrants > 0 && d.entrants <= 1000000))
-        && (!('prizePool' in d) || (d.prizePool is int && d.prizePool >= 0))
         && (!('tripId' in d) || (d.tripId is string && d.tripId.size() <= 120))
         && d.note is string && d.note.size() <= 4000;
     }
