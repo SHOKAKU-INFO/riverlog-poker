@@ -9,11 +9,12 @@ const categories: { value: ExpenseCategory; icon: typeof BedDouble }[] = [
 const yen = (value: number | null, signed = false) => value === null ? 'レート未取得' : money(value, 'JPY', signed)
 const dateRange = (trip: Trip) => `${trip.startDate.replaceAll('-', '.')} — ${trip.endDate.replaceAll('-', '.')}`
 
-export function TripsPage({ trips, sessions, activeSession, onSave, onDelete, onStartSession, onOpenSession }: { trips: Trip[]; sessions: Session[]; activeSession?: Session; onSave: (trip: Trip, message?: string) => void; onDelete: (id: string) => void; onStartSession: (trip: Trip) => void; onOpenSession: (session: Session) => void }) {
+export function TripsPage({ trips, sessions, activeSession, openTripId, onOpenTripHandled, onSave, onDelete, onStartSession, onOpenSession }: { trips: Trip[]; sessions: Session[]; activeSession?: Session; openTripId?: string | null; onOpenTripHandled?: () => void; onSave: (trip: Trip, message?: string) => void; onDelete: (id: string) => void; onStartSession: (trip: Trip) => void; onOpenSession: (session: Session) => void }) {
   const [tripModal, setTripModal] = useState<Trip | 'new' | null>(null)
   const [selected, setSelected] = useState<Trip | null>(null)
   const [expenseTrip, setExpenseTrip] = useState<Trip | null>(null)
   const sorted = [...trips].sort((a, b) => b.startDate.localeCompare(a.startDate))
+  useEffect(() => { if (!openTripId) return; const trip = trips.find(item => item.id === openTripId); if (trip) setSelected(trip); onOpenTripHandled?.() }, [openTripId, trips, onOpenTripHandled])
   const save = (trip: Trip, message?: string) => { onSave(trip, message); setTripModal(null); setSelected(trip); setExpenseTrip(null) }
   return <>
     <div className="page-heading"><div><div className="eyebrow">TRUE TRIP PROFIT</div><h1>遠征収支<span className="title-period">.</span></h1><p>ポーカー収支から宿泊・食事・交通費を引いて、旅で実際に残った金額を見る。</p></div><button className="primary-button" onClick={() => setTripModal('new')}><Plus size={18} /> 遠征を作る</button></div>
