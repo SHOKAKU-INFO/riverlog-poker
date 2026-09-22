@@ -23,6 +23,17 @@ service cloud.firestore {
         && d.tags is list && d.tags.size() <= 20
         && d.note is string && d.note.size() <= 4000;
     }
+    function validTrip(id) {
+      let d = request.resource.data;
+      return d.id == id
+        && d.name is string && d.name.size() > 0 && d.name.size() <= 120
+        && d.destination is string && d.destination.size() <= 120
+        && d.startDate is string && d.startDate.size() == 10
+        && d.endDate is string && d.endDate.size() == 10
+        && d.startDate <= d.endDate
+        && d.expenses is list && d.expenses.size() <= 500
+        && d.note is string && d.note.size() <= 4000;
+    }
     match /users/{uid}/sessions/{id} {
       allow get, list, delete: if owner(uid);
       allow create, update: if owner(uid) && validSession(id);
@@ -30,6 +41,10 @@ service cloud.firestore {
     match /users/{uid}/players/{id} {
       allow get, list, delete: if owner(uid);
       allow create, update: if owner(uid) && validPlayer(id);
+    }
+    match /users/{uid}/trips/{id} {
+      allow get, list, delete: if owner(uid);
+      allow create, update: if owner(uid) && validTrip(id);
     }
   }
 }

@@ -22,6 +22,9 @@ export interface Session {
   note: string; rate?: Rate; createdAt: string; updatedAt: string
 }
 export interface Player { id: string; name: string; venue: string; tags: string[]; note: string; updatedAt: string }
+export type ExpenseCategory = '宿泊' | '食事' | '交通' | 'その他'
+export interface TripExpense { id: string; category: ExpenseCategory; amount: number; currency: Currency; spentAt: string; note: string; rate?: Rate }
+export interface Trip { id: string; name: string; destination: string; startDate: string; endDate: string; expenses: TripExpense[]; note: string; createdAt: string; updatedAt: string }
 
 export const toMinor = (value: number, currency: Currency) => Math.round(value * 10 ** decimals[currency])
 export const fromMinor = (value: number, currency: Currency) => value / 10 ** decimals[currency]
@@ -34,6 +37,16 @@ export const calendarDayTotal = (sessions: Session[]) => {
   if (converted.some(value => value === null)) return null
   return converted.reduce<number>((sum, value) => sum + (value ?? 0), 0)
 }
+export const sessionsForTrip = (trip: Trip, sessions: Session[]) => sessions.filter(session => { const date = session.localDate || session.startedAt.slice(0, 10); return Boolean(session.endedAt) && date >= trip.startDate && date <= trip.endDate })
+export const tripPokerYen = (trip: Trip, sessions: Session[]) => {
+  const values = sessionsForTrip(trip, sessions).map(session => asYen(profit(session), session.currency, session.rate))
+  return values.some(value => value === null) ? null : values.reduce<number>((sum, value) => sum + (value ?? 0), 0)
+}
+export const tripExpenseYen = (trip: Trip) => {
+  const values = trip.expenses.map(expense => asYen(expense.amount, expense.currency, expense.rate))
+  return values.some(value => value === null) ? null : values.reduce<number>((sum, value) => sum + (value ?? 0), 0)
+}
+export const tripNetYen = (trip: Trip, sessions: Session[]) => { const poker = tripPokerYen(trip, sessions); const expenses = tripExpenseYen(trip); return poker === null || expenses === null ? null : poker - expenses }
 export const money = (minor: number, currency: Currency, signed = false) => {
   const value = fromMinor(minor, currency)
   const symbol = { JPY: '¥', USD: '$', EUR: '€', GBP: '£', HKD: 'HK$', KRW: '₩', PHP: '₱', VND: '₫', THB: '฿', TWD: 'NT$' }[currency]
@@ -58,3 +71,12 @@ export const samplePlayers: Player[] = [
   { id: 'demo-p1', name: 'Michael', venue: 'Bellagio', tags: ['タイト', '常連'], note: '3番席。プリフロップは堅め、リバーの大きなベットは強い傾向。', updatedAt: stamp(1) },
   { id: 'demo-p2', name: 'Kei', venue: 'Bellagio', tags: ['アグレッシブ'], note: '8番席。ボタンからのオープン頻度が高い。', updatedAt: stamp(1) },
 ]
+export const sampleTrips: Trip[] = [{
+  id: 'demo-trip-1', name: 'ラスベガス遠征', destination: 'Las Vegas',
+  startDate: new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10), endDate: new Date().toISOString().slice(0, 10),
+  expenses: [
+    { id: 'demo-e1', category: '宿泊', amount: 42000, currency: 'USD', spentAt: new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10), note: 'Hotel', rate: { rate: 149.5, date: new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10), fetchedAt: stamp(6), provider: 'Frankfurter' } },
+    { id: 'demo-e2', category: '交通', amount: 120000, currency: 'JPY', spentAt: new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10), note: '日本で予約した往復航空券' },
+    { id: 'demo-e3', category: '食事', amount: 12000, currency: 'USD', spentAt: new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10), note: '', rate: { rate: 149.5, date: new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10), fetchedAt: stamp(2), provider: 'Frankfurter' } },
+  ], note: '', createdAt: stamp(7), updatedAt: stamp(1),
+}]
