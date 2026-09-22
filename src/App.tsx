@@ -33,6 +33,7 @@ function App() {
   const [rates, setRates] = useState<Partial<Record<Currency, Rate>>>({})
   const [sessionModal, setSessionModal] = useState<Session | 'new' | null>(null)
   const [sessionTrip, setSessionTrip] = useState<Trip | null>(null)
+  const [sessionDate, setSessionDate] = useState<string | null>(null)
   const [sessionAction, setSessionAction] = useState<{ kind: 'rebuy' | 'finish'; session: Session } | null>(null)
   const [playerModal, setPlayerModal] = useState<Player | 'new' | null>(null)
   const [selectedSession, setSelectedSession] = useState<Session | null>(null)
@@ -45,6 +46,8 @@ function App() {
   const [year, setYear] = useState(() => new Date().getFullYear())
   const [selectedDay, setSelectedDay] = useState<number | null>(null)
   const [calendarTripModal, setCalendarTripModal] = useState<Trip | { date: string } | null>(null)
+  const [calendarActionDate, setCalendarActionDate] = useState<string | null>(null)
+  const [openTripId, setOpenTripId] = useState<string | null>(null)
 
   useEffect(() => { const id = window.setInterval(() => setNow(Date.now()), 60_000); return () => window.clearInterval(id) }, [])
   useEffect(() => { if (!firebaseConfigured) return; return watchUser(async next => {
@@ -73,7 +76,7 @@ function App() {
   const saveSession = async (session: Session, successMessage?: string) => {
     const previous = sessions
     setSessions(current => [session, ...current.filter(s => s.id !== session.id)])
-    setSessionModal(null); setSessionTrip(null); setSessionAction(null); setSelectedSession(null)
+    setSessionModal(null); setSessionTrip(null); setSessionDate(null); setSessionAction(null); setSelectedSession(null)
     if (user) try { await saveSessionRemote(user.uid, session) } catch { setSessions(previous); setNotice('保存に失敗しました。接続を確認してください。'); return }
     else if (!successMessage) setNotice('端末内のデモデータに保存しました')
     if (successMessage) setNotice(successMessage)
@@ -108,7 +111,14 @@ function App() {
     if (user) try { await deleteTripRemote(user.uid, id) } catch { setTrips(previous); setNotice('遠征の削除に失敗しました') }
   }
   const navigate = (destination: Page) => { setPage(destination); setSidebarOpen(false); window.scrollTo(0, 0) }
-  const startOrOpenSession = () => active ? setSelectedSession(active) : setSessionModal('new')
+  const startOrOpenSession = () => { if (active) setSelectedSession(active); else { setSessionTrip(null); setSessionDate(null); setSessionModal('new') } }
+  const startSessionFromCalendar = (date: string) => {
+    setCalendarActionDate(null)
+    if (active) { setSelectedSession(active); return }
+    const matchingTrips = tripsForDate(date, trips)
+    setSessionTrip(matchingTrips.length === 1 ? matchingTrips[0] : null)
+    setSessionDate(date); setSessionModal('new')
+  }
   const beginLogin = () => {
     if (restrictedBrowser) { setBrowserHelp(restrictedBrowser); return }
     void login().catch(error => setNotice(authErrorMessage(error)))
@@ -152,7 +162,7 @@ function App() {
 
         {page === 'sessions' && <><div className="page-heading"><div><div className="eyebrow">YOUR PLAY HISTORY</div><h1>セッション<span className="title-period">.</span></h1><p>現地通貨と円換算、両方の視点で記録する。</p></div><button className="primary-button" onClick={startOrOpenSession}>{active ? <Clock3 size={18} /> : <Plus size={18} />} {active ? '進行中を開く' : 'セッションを開始'}</button></div><div className="filter-bar"><div className="search-box"><Search size={18} /><input placeholder="会場・ゲームで検索" value={search} onChange={e => setSearch(e.target.value)} /></div><span>{sorted.length} 件の記録</span></div><div className="session-list page-list">{sorted.filter(s => `${s.venue} ${s.game} ${s.location}`.toLowerCase().includes(search.toLowerCase())).map(s => <SessionRow key={s.id} session={s} onClick={() => setSelectedSession(s)} />)}{!sessions.length && <Empty message="まだセッションがありません。" />}</div></>}
 
-        {page === 'trips' && <TripsPage trips={trips} sessions={sessions} activeSession={active} onSave={(trip, message) => void saveTrip(trip, message)} onDelete={id => void removeTrip(id)} onStartSession={trip => { setSessionTrip(trip); setSessionModal('new') }} onOpenSession={session => setSelectedSession(session)} />}
+        {page === 'trips' && <TripsPage trips={trips} sessions={sessions} activeSession={active} openTripId={openTripId} onOpenTripHandled={() => setOpenTripId(null)} onSave={(trip, message) => void saveTrip(trip, message)} onDelete={id => void removeTrip(id)} onStartSession={trip => { setSessionTrip(trip); setSessionDate(null); setSessionModal('new') }} onOpenSession={session => setSelectedSession(session)} />}
 
         {page === 'calendar' && <>
           <div className="page-heading"><div><div className="eyebrow">PLAY & TRAVEL CALENDAR</div><h1>カレンダー<span className="title-period">.</span></h1><p>遠征期間と日ごとのセッション収支を、ひとつの時間軸で見る。</p></div><div className="page-actions"><button className="secondary-button" onClick={() => setCalendarTripModal({ date: selectedDay ? `${year}-${String(month + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}` : today() })}><Plane size={17} /> 遠征を登録</button><button className="primary-button" onClick={startOrOpenSession}>{active ? <Clock3 size={18} /> : <Plus size={18} />} {active ? '進行中を開く' : 'セッションを開始'}</button></div></div>
@@ -168,11 +178,11 @@ function App() {
                 const dayTrips = tripsForDate(date, trips)
                 const total = calendarDayTotal(matches)
                 const amount = total === null ? (matches.some(s => s.endedAt) ? 'レート未取得' : '進行中') : money(total, 'JPY', true)
-                return <button key={day} className={`calendar-day ${dayTrips.length ? 'in-trip' : ''} ${dayTrips.some(trip => trip.startDate === date) ? 'trip-start' : ''} ${dayTrips.some(trip => trip.endDate === date) ? 'trip-end' : ''} ${matches.length ? 'has-session' : ''} ${total !== null && total < 0 ? 'loss' : ''} ${selectedDay === day ? 'selected' : ''} ${localInputDate(new Date()).slice(0, 10) === date ? 'today' : ''}`} aria-label={`${day}日${dayTrips.length ? `、${dayTrips.map(trip => trip.name).join('、')}の遠征期間` : ''}、${matches.length}件${matches.length ? `、${amount}` : ''}`} aria-pressed={selectedDay === day} onClick={() => setSelectedDay(day)}><span>{day}</span>{dayTrips.length > 0 && <span className="calendar-trip-label"><Plane size={10} /> {dayTrips[0].name}{dayTrips.length > 1 ? ` +${dayTrips.length - 1}` : ''}</span>}{matches.length > 0 && <><strong className={`calendar-amount ${total === null ? 'unconverted' : total < 0 ? 'negative' : total > 0 ? 'positive' : ''}`}>{amount}</strong><small>{matches.length}件</small></>}</button>
+                return <button key={day} className={`calendar-day ${dayTrips.length ? 'in-trip' : ''} ${dayTrips.some(trip => trip.startDate === date) ? 'trip-start' : ''} ${dayTrips.some(trip => trip.endDate === date) ? 'trip-end' : ''} ${matches.length ? 'has-session' : ''} ${total !== null && total < 0 ? 'loss' : ''} ${selectedDay === day ? 'selected' : ''} ${localInputDate(new Date()).slice(0, 10) === date ? 'today' : ''}`} aria-label={`${day}日${dayTrips.length ? `、${dayTrips.map(trip => trip.name).join('、')}の遠征期間` : ''}、${matches.length}件${matches.length ? `、${amount}` : ''}`} aria-pressed={selectedDay === day} onClick={() => { setSelectedDay(day); setCalendarActionDate(date) }}><span>{day}</span>{dayTrips.length > 0 && <span className="calendar-trip-label"><Plane size={10} /> {dayTrips[0].name}{dayTrips.length > 1 ? ` +${dayTrips.length - 1}` : ''}</span>}{matches.length > 0 && <><strong className={`calendar-amount ${total === null ? 'unconverted' : total < 0 ? 'negative' : total > 0 ? 'positive' : ''}`}>{amount}</strong><small>{matches.length}件</small></>}</button>
               })}
             </div>
           </div>
-          {selectedDay !== null && (() => { const selectedDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`; const dayTrips = tripsForDate(selectedDate, trips); return <section className="calendar-trip-context"><div className="calendar-context-head"><div><div className="eyebrow">TRAVEL ON THIS DAY</div><h2>{month + 1}月{selectedDay}日の遠征</h2></div>{!dayTrips.length && <button className="secondary-button" onClick={() => setCalendarTripModal({ date: selectedDate })}><Plus size={16} /> この日から作る</button>}</div>{dayTrips.length ? <div className="calendar-trip-list">{dayTrips.map(trip => <button key={trip.id} onClick={() => setCalendarTripModal(trip)}><span className="calendar-trip-icon"><Plane size={18} /></span><span><strong>{trip.name}</strong><small>{trip.destination || '行き先未設定'} · {trip.startDate.replaceAll('-', '.')} — {trip.endDate.replaceAll('-', '.')}</small></span><span>編集 <ArrowRight size={15} /></span></button>)}</div> : <p>この日の遠征は未登録です。日付を選んだ状態で作成すると、出発日と帰宅日に自動入力されます。</p>}</section> })()}
+          {selectedDay !== null && (() => { const selectedDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`; const dayTrips = tripsForDate(selectedDate, trips); return <section className="calendar-trip-context"><div className="calendar-context-head"><div><div className="eyebrow">TRAVEL ON THIS DAY</div><h2>{month + 1}月{selectedDay}日の遠征</h2></div>{!dayTrips.length && <button className="secondary-button" onClick={() => setCalendarTripModal({ date: selectedDate })}><Plus size={16} /> この日から作る</button>}</div>{dayTrips.length ? <div className="calendar-trip-list">{dayTrips.map(trip => <button key={trip.id} onClick={() => { setOpenTripId(trip.id); navigate('trips') }}><span className="calendar-trip-icon"><Plane size={18} /></span><span><strong>{trip.name}</strong><small>{trip.destination || '行き先未設定'} · {trip.startDate.replaceAll('-', '.')} — {trip.endDate.replaceAll('-', '.')}</small></span><span>開く <ArrowRight size={15} /></span></button>)}</div> : <p>この日の遠征は未登録です。日付を選んだ状態で作成すると、出発日と帰宅日に自動入力されます。</p>}</section> })()}
           <section className="section"><SectionHeading label="THIS MONTH" title={selectedDay ? `${month + 1}月${selectedDay}日のセッション` : '今月のセッション'} action={selectedDay ? '月全体を見る' : undefined} onAction={() => setSelectedDay(null)} /><div className="session-list">{sorted.filter(s => { const date = s.localDate || s.startedAt.slice(0, 10); return date.startsWith(`${year}-${String(month + 1).padStart(2, '0')}-`) && (selectedDay === null || date.endsWith(`-${String(selectedDay).padStart(2, '0')}`)) }).map(s => <SessionRow key={s.id} session={s} onClick={() => setSelectedSession(s)} />)}</div></section>
         </>}
 
@@ -184,7 +194,8 @@ function App() {
       </div>
     </main>
     <nav className="mobile-nav" aria-label="モバイルメニュー">{nav.slice(0, 5).map(item => <button key={item.page} className={page === item.page ? 'active' : ''} onClick={() => navigate(item.page)}><item.icon size={21} /><span>{item.page === 'overview' ? 'ホーム' : item.page === 'trips' ? '遠征' : item.page === 'analytics' ? '分析' : item.label}</span></button>)}</nav>
-    {sessionModal && <SessionForm initial={sessionModal === 'new' ? undefined : sessionModal} defaultLocation={sessionModal === 'new' ? sessionTrip?.destination : undefined} tripId={sessionModal === 'new' ? sessionTrip?.id : undefined} tripName={sessionModal === 'new' ? sessionTrip?.name : undefined} sessions={sessions} rate={rates} onClose={() => { setSessionModal(null); setSessionTrip(null) }} onSave={saveSession} />}
+    {calendarActionDate && <CalendarActionDialog date={calendarActionDate} trips={tripsForDate(calendarActionDate, trips)} sessionCount={sessions.filter(session => (session.localDate || session.startedAt.slice(0, 10)) === calendarActionDate).length} activeSession={active} onClose={() => setCalendarActionDate(null)} onTrip={() => { const matchingTrips = tripsForDate(calendarActionDate, trips); setCalendarActionDate(null); if (matchingTrips.length) { if (matchingTrips.length === 1) setOpenTripId(matchingTrips[0].id); navigate('trips') } else setCalendarTripModal({ date: calendarActionDate }) }} onSession={() => startSessionFromCalendar(calendarActionDate)} />}
+    {sessionModal && <SessionForm initial={sessionModal === 'new' ? undefined : sessionModal} defaultLocation={sessionModal === 'new' ? sessionTrip?.destination : undefined} defaultDate={sessionModal === 'new' ? sessionDate || undefined : undefined} tripId={sessionModal === 'new' ? sessionTrip?.id : undefined} tripName={sessionModal === 'new' ? sessionTrip?.name : undefined} sessions={sessions} rate={rates} onClose={() => { setSessionModal(null); setSessionTrip(null); setSessionDate(null) }} onSave={saveSession} />}
     {sessionAction?.kind === 'rebuy' && <RebuyForm session={sessionAction.session} onClose={() => setSessionAction(null)} onSave={(amount) => { const session = sessionAction.session; void saveSession({ ...session, rebuy: session.rebuy + amount, updatedAt: new Date().toISOString() }, `${money(amount, session.currency)} のリバイを追加しました`) }} />}
     {sessionAction?.kind === 'finish' && <FinishSessionForm session={sessionAction.session} rate={rates[sessionAction.session.currency]} onClose={() => setSessionAction(null)} onSave={session => void saveSession(session, 'セッションを終了し、収支を記録しました')} />}
     {playerModal && <PlayerForm initial={playerModal === 'new' ? undefined : playerModal} onClose={() => setPlayerModal(null)} onSave={savePlayer} onDelete={removePlayer} />}
@@ -192,6 +203,10 @@ function App() {
     {browserHelp && <ExternalBrowserGuide browser={browserHelp} onClose={() => setBrowserHelp(null)} />}
     {selectedSession && <SessionDetail session={selectedSession} currentRate={rates[selectedSession.currency]} now={now} onClose={() => setSelectedSession(null)} onEdit={() => { setSessionModal(selectedSession); setSelectedSession(null) }} onDelete={() => removeSession(selectedSession.id)} onQuickRebuy={() => addMatchingRebuy(selectedSession)} onCustomRebuy={() => { setSessionAction({ kind: 'rebuy', session: selectedSession }); setSelectedSession(null) }} onFinish={() => { setSessionAction({ kind: 'finish', session: selectedSession }); setSelectedSession(null) }} />}
   </div>
+}
+
+function CalendarActionDialog({ date, trips, sessionCount, activeSession, onClose, onTrip, onSession }: { date: string; trips: Trip[]; sessionCount: number; activeSession?: Session; onClose: () => void; onTrip: () => void; onSession: () => void }) {
+  return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal calendar-action-modal" onMouseDown={event => event.stopPropagation()} role="dialog" aria-modal="true" aria-label={`${date}の記録を選択`}><div className="modal-header"><div><div className="eyebrow">QUICK ACTION</div><h2>{dateLabel(`${date}T12:00:00`)}</h2><p className="entry-subtitle">遠征とプレーをここから操作できます。</p></div><button className="icon-button" onClick={onClose} aria-label="閉じる"><X size={21} /></button></div><div className="calendar-action-grid"><button onClick={onTrip}><span className="calendar-action-icon trip"><Plane size={25} /></span><span><small>TRAVEL</small><strong>{trips.length ? trips.length === 1 ? '遠征を開く' : '遠征を選ぶ' : '遠征を登録'}</strong><em>{trips.length ? trips.length === 1 ? `${trips[0].name} · セッションと旅費を操作` : `${trips.length}件の遠征があります` : '選択日を出発日・帰宅日に入力'}</em></span><ArrowRight size={19} /></button><button onClick={onSession}><span className="calendar-action-icon session">{activeSession ? <Clock3 size={25} /> : <Spade size={25} />}</span><span><small>POKER</small><strong>{activeSession ? 'プレー中を操作' : 'セッションを開始'}</strong><em>{activeSession ? `${activeSession.venue} · リバイや終了へ進む` : trips.length === 1 ? `${trips[0].name}へ自動で追加` : '選択日を開始日時に入力'}</em></span><ArrowRight size={19} /></button></div>{(trips.length > 0 || sessionCount > 0) && <div className="calendar-action-existing"><span>{trips.length} 遠征</span><span>{sessionCount} セッション</span><small>この日に登録済み</small></div>}</div></div>
 }
 
 function StatCard({ icon: Icon, label, value, detail }: { icon: typeof Clock3; label: string; value: string; detail: string }) { return <div className="stat-card"><div className="stat-head"><div className="stat-icon"><Icon size={19} /></div><ArrowUpRight size={17} /></div><small>{label}</small><strong>{value}</strong><span>{detail}</span></div> }
@@ -245,7 +260,7 @@ function EntryDrawer({ title, value, options, onChoose, onClose, allowClear = fa
   </div>
 }
 
-function SessionForm({ initial, defaultLocation, tripId, tripName, sessions, rate, onClose, onSave }: { initial?: Session; defaultLocation?: string; tripId?: string; tripName?: string; sessions: Session[]; rate: Partial<Record<Currency, Rate>>; onClose: () => void; onSave: (session: Session) => void }) {
+function SessionForm({ initial, defaultLocation, defaultDate, tripId, tripName, sessions, rate, onClose, onSave }: { initial?: Session; defaultLocation?: string; defaultDate?: string; tripId?: string; tripName?: string; sessions: Session[]; rate: Partial<Record<Currency, Rate>>; onClose: () => void; onSave: (session: Session) => void }) {
   const [venue, setVenue] = useState(initial?.venue || '')
   const [location, setLocation] = useState(initial?.location || defaultLocation || '')
   const [game, setGame] = useState<'ライブ' | 'オンライン'>(initial?.game || 'ライブ')
@@ -257,7 +272,7 @@ function SessionForm({ initial, defaultLocation, tripId, tripName, sessions, rat
   const [cashOut, setCashOut] = useState(initial ? String(fromMinor(initial.cashOut, initial.currency)) : '')
   const [tips, setTips] = useState(initial ? String(fromMinor(initial.tips, initial.currency)) : '0')
   const [note, setNote] = useState(initial?.note || '')
-  const [startedAt, setStartedAt] = useState(initial ? localInputDate(new Date(initial.startedAt)) : localInputDate(new Date()))
+  const [startedAt, setStartedAt] = useState(initial ? localInputDate(new Date(initial.startedAt)) : defaultDate && defaultDate !== today() ? `${defaultDate}T12:00` : localInputDate(new Date()))
   const [entryRate, setEntryRate] = useState<Rate | undefined>(rate[initial?.currency || 'USD'])
   const venueOptions = useMemo(() => savedVenueOptions(sessions), [sessions])
   const locationOptions = useMemo(() => savedLocationOptions(sessions), [sessions])
