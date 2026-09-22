@@ -19,7 +19,7 @@ export interface Rate { rate: number; date: string; fetchedAt: string; provider:
 export interface Session {
   id: string; venue: string; location: string; game: 'ライブ' | 'オンライン'; stakes: string; currency: Currency
   startedAt: string; localDate?: string; endedAt?: string; buyIn: number; rebuy: number; cashOut: number; tips: number
-  note: string; rate?: Rate; createdAt: string; updatedAt: string
+  note: string; tripId?: string; rate?: Rate; createdAt: string; updatedAt: string
 }
 export interface Player { id: string; name: string; venue: string; tags: string[]; note: string; updatedAt: string }
 export type ExpenseCategory = '宿泊' | '食事' | '交通' | 'その他'
@@ -38,7 +38,8 @@ export const calendarDayTotal = (sessions: Session[]) => {
   return converted.reduce<number>((sum, value) => sum + (value ?? 0), 0)
 }
 export const tripsForDate = (date: string, trips: Trip[]) => trips.filter(trip => date >= trip.startDate && date <= trip.endDate)
-export const sessionsForTrip = (trip: Trip, sessions: Session[]) => sessions.filter(session => { const date = session.localDate || session.startedAt.slice(0, 10); return Boolean(session.endedAt) && date >= trip.startDate && date <= trip.endDate })
+export const sessionsInTrip = (trip: Trip, sessions: Session[]) => sessions.filter(session => { if (session.tripId) return session.tripId === trip.id; const date = session.localDate || session.startedAt.slice(0, 10); return date >= trip.startDate && date <= trip.endDate })
+export const sessionsForTrip = (trip: Trip, sessions: Session[]) => sessionsInTrip(trip, sessions).filter(session => Boolean(session.endedAt))
 export const tripPokerYen = (trip: Trip, sessions: Session[]) => {
   const values = sessionsForTrip(trip, sessions).map(session => asYen(profit(session), session.currency, session.rate))
   return values.some(value => value === null) ? null : values.reduce<number>((sum, value) => sum + (value ?? 0), 0)

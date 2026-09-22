@@ -32,6 +32,7 @@ function App() {
   const [trips, setTrips] = useState<Trip[]>(() => readLocal('riverlog-demo-trips', sampleTrips))
   const [rates, setRates] = useState<Partial<Record<Currency, Rate>>>({})
   const [sessionModal, setSessionModal] = useState<Session | 'new' | null>(null)
+  const [sessionTrip, setSessionTrip] = useState<Trip | null>(null)
   const [sessionAction, setSessionAction] = useState<{ kind: 'rebuy' | 'finish'; session: Session } | null>(null)
   const [playerModal, setPlayerModal] = useState<Player | 'new' | null>(null)
   const [selectedSession, setSelectedSession] = useState<Session | null>(null)
@@ -72,7 +73,7 @@ function App() {
   const saveSession = async (session: Session, successMessage?: string) => {
     const previous = sessions
     setSessions(current => [session, ...current.filter(s => s.id !== session.id)])
-    setSessionModal(null); setSessionAction(null); setSelectedSession(null)
+    setSessionModal(null); setSessionTrip(null); setSessionAction(null); setSelectedSession(null)
     if (user) try { await saveSessionRemote(user.uid, session) } catch { setSessions(previous); setNotice('保存に失敗しました。接続を確認してください。'); return }
     else if (!successMessage) setNotice('端末内のデモデータに保存しました')
     if (successMessage) setNotice(successMessage)
@@ -117,7 +118,7 @@ function App() {
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url)
   }
   const exportCsv = () => {
-    const rows = [['id','venue','location','game','blinds','currency','startedAt','endedAt','buyIn','rebuy','cashOut','tips','profit','rate','rateDate','note'], ...sessions.map(s => [s.id,s.venue,s.location,s.game,s.stakes,s.currency,s.startedAt,s.endedAt || '',fromMinor(s.buyIn,s.currency),fromMinor(s.rebuy,s.currency),fromMinor(s.cashOut,s.currency),fromMinor(s.tips,s.currency),fromMinor(profit(s),s.currency),s.rate?.rate || '',s.rate?.date || '',s.note])]
+    const rows = [['id','tripId','venue','location','game','blinds','currency','startedAt','endedAt','buyIn','rebuy','cashOut','tips','profit','rate','rateDate','note'], ...sessions.map(s => [s.id,s.tripId || '',s.venue,s.location,s.game,s.stakes,s.currency,s.startedAt,s.endedAt || '',fromMinor(s.buyIn,s.currency),fromMinor(s.rebuy,s.currency),fromMinor(s.cashOut,s.currency),fromMinor(s.tips,s.currency),fromMinor(profit(s),s.currency),s.rate?.rate || '',s.rate?.date || '',s.note])]
     downloadCsv(rows, `riverlog-sessions-${today()}.csv`)
   }
   const exportTripCsv = () => {
@@ -151,7 +152,7 @@ function App() {
 
         {page === 'sessions' && <><div className="page-heading"><div><div className="eyebrow">YOUR PLAY HISTORY</div><h1>セッション<span className="title-period">.</span></h1><p>現地通貨と円換算、両方の視点で記録する。</p></div><button className="primary-button" onClick={startOrOpenSession}>{active ? <Clock3 size={18} /> : <Plus size={18} />} {active ? '進行中を開く' : 'セッションを開始'}</button></div><div className="filter-bar"><div className="search-box"><Search size={18} /><input placeholder="会場・ゲームで検索" value={search} onChange={e => setSearch(e.target.value)} /></div><span>{sorted.length} 件の記録</span></div><div className="session-list page-list">{sorted.filter(s => `${s.venue} ${s.game} ${s.location}`.toLowerCase().includes(search.toLowerCase())).map(s => <SessionRow key={s.id} session={s} onClick={() => setSelectedSession(s)} />)}{!sessions.length && <Empty message="まだセッションがありません。" />}</div></>}
 
-        {page === 'trips' && <TripsPage trips={trips} sessions={sessions} onSave={(trip, message) => void saveTrip(trip, message)} onDelete={id => void removeTrip(id)} />}
+        {page === 'trips' && <TripsPage trips={trips} sessions={sessions} activeSession={active} onSave={(trip, message) => void saveTrip(trip, message)} onDelete={id => void removeTrip(id)} onStartSession={trip => { setSessionTrip(trip); setSessionModal('new') }} onOpenSession={session => setSelectedSession(session)} />}
 
         {page === 'calendar' && <>
           <div className="page-heading"><div><div className="eyebrow">PLAY & TRAVEL CALENDAR</div><h1>カレンダー<span className="title-period">.</span></h1><p>遠征期間と日ごとのセッション収支を、ひとつの時間軸で見る。</p></div><div className="page-actions"><button className="secondary-button" onClick={() => setCalendarTripModal({ date: selectedDay ? `${year}-${String(month + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}` : today() })}><Plane size={17} /> 遠征を登録</button><button className="primary-button" onClick={startOrOpenSession}>{active ? <Clock3 size={18} /> : <Plus size={18} />} {active ? '進行中を開く' : 'セッションを開始'}</button></div></div>
@@ -183,7 +184,7 @@ function App() {
       </div>
     </main>
     <nav className="mobile-nav" aria-label="モバイルメニュー">{nav.slice(0, 5).map(item => <button key={item.page} className={page === item.page ? 'active' : ''} onClick={() => navigate(item.page)}><item.icon size={21} /><span>{item.page === 'overview' ? 'ホーム' : item.page === 'trips' ? '遠征' : item.page === 'analytics' ? '分析' : item.label}</span></button>)}</nav>
-    {sessionModal && <SessionForm initial={sessionModal === 'new' ? undefined : sessionModal} sessions={sessions} rate={rates} onClose={() => setSessionModal(null)} onSave={saveSession} />}
+    {sessionModal && <SessionForm initial={sessionModal === 'new' ? undefined : sessionModal} defaultLocation={sessionModal === 'new' ? sessionTrip?.destination : undefined} tripId={sessionModal === 'new' ? sessionTrip?.id : undefined} tripName={sessionModal === 'new' ? sessionTrip?.name : undefined} sessions={sessions} rate={rates} onClose={() => { setSessionModal(null); setSessionTrip(null) }} onSave={saveSession} />}
     {sessionAction?.kind === 'rebuy' && <RebuyForm session={sessionAction.session} onClose={() => setSessionAction(null)} onSave={(amount) => { const session = sessionAction.session; void saveSession({ ...session, rebuy: session.rebuy + amount, updatedAt: new Date().toISOString() }, `${money(amount, session.currency)} のリバイを追加しました`) }} />}
     {sessionAction?.kind === 'finish' && <FinishSessionForm session={sessionAction.session} rate={rates[sessionAction.session.currency]} onClose={() => setSessionAction(null)} onSave={session => void saveSession(session, 'セッションを終了し、収支を記録しました')} />}
     {playerModal && <PlayerForm initial={playerModal === 'new' ? undefined : playerModal} onClose={() => setPlayerModal(null)} onSave={savePlayer} onDelete={removePlayer} />}
@@ -244,9 +245,9 @@ function EntryDrawer({ title, value, options, onChoose, onClose, allowClear = fa
   </div>
 }
 
-function SessionForm({ initial, sessions, rate, onClose, onSave }: { initial?: Session; sessions: Session[]; rate: Partial<Record<Currency, Rate>>; onClose: () => void; onSave: (session: Session) => void }) {
+function SessionForm({ initial, defaultLocation, tripId, tripName, sessions, rate, onClose, onSave }: { initial?: Session; defaultLocation?: string; tripId?: string; tripName?: string; sessions: Session[]; rate: Partial<Record<Currency, Rate>>; onClose: () => void; onSave: (session: Session) => void }) {
   const [venue, setVenue] = useState(initial?.venue || '')
-  const [location, setLocation] = useState(initial?.location || '')
+  const [location, setLocation] = useState(initial?.location || defaultLocation || '')
   const [game, setGame] = useState<'ライブ' | 'オンライン'>(initial?.game || 'ライブ')
   const [stakes, setStakes] = useState(initial?.stakes || '')
   const [customStakes, setCustomStakes] = useState(Boolean(initial?.stakes && !blindChoicesFor(initial.currency).includes(initial.stakes)))
@@ -274,11 +275,11 @@ function SessionForm({ initial, sessions, rate, onClose, onSave }: { initial?: S
     event.preventDefault()
     if (!venue.trim() || buyIn === '') return
     const now = new Date().toISOString()
-    onSave({ id: initial?.id || crypto.randomUUID(), venue: venue.trim(), location: location.trim(), game, stakes: stakes.trim(), currency, startedAt: new Date(startedAt).toISOString(), localDate: startedAt.slice(0, 10), endedAt: initial?.endedAt, buyIn: toMinor(Number(buyIn), currency), rebuy: initial?.rebuy || 0, cashOut: completed ? toMinor(Number(cashOut || 0), currency) : initial?.cashOut || 0, tips: completed ? toMinor(Number(tips || 0), currency) : initial?.tips || 0, note: note.trim(), rate: initial?.rate, createdAt: initial?.createdAt || now, updatedAt: now })
+    onSave({ id: initial?.id || crypto.randomUUID(), venue: venue.trim(), location: location.trim(), game, stakes: stakes.trim(), currency, startedAt: new Date(startedAt).toISOString(), localDate: startedAt.slice(0, 10), endedAt: initial?.endedAt, buyIn: toMinor(Number(buyIn), currency), rebuy: initial?.rebuy || 0, cashOut: completed ? toMinor(Number(cashOut || 0), currency) : initial?.cashOut || 0, tips: completed ? toMinor(Number(tips || 0), currency) : initial?.tips || 0, note: note.trim(), tripId: initial?.tripId || tripId, rate: initial?.rate, createdAt: initial?.createdAt || now, updatedAt: now })
   }
   return <>
     <div className="modal-backdrop" onMouseDown={onClose}><div className="modal session-entry-modal" onMouseDown={event => event.stopPropagation()} role="dialog" aria-modal="true" aria-label={initial ? 'セッションを編集' : 'セッションを開始'}>
-      <div className="modal-header"><div><div className="eyebrow">{initial ? 'SESSION SETTINGS' : 'START SESSION'}</div><h2>{initial ? '基本情報を編集' : 'セッションを始める'}</h2><p className="entry-subtitle">{initial ? '会場や初回バイインを修正します。' : '開始に必要な項目だけを、短く入力します。'}</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる"><X size={21} /></button></div>
+      <div className="modal-header"><div><div className="eyebrow">{initial ? 'SESSION SETTINGS' : 'START SESSION'}</div><h2>{initial ? '基本情報を編集' : 'セッションを始める'}</h2><p className="entry-subtitle">{initial ? '会場や初回バイインを修正します。' : tripName ? `${tripName} のセッションとして自動集計します。` : '開始に必要な項目だけを、短く入力します。'}</p></div><button type="button" className="icon-button" onClick={onClose} aria-label="閉じる"><X size={21} /></button></div>
       <form onSubmit={submit}>
         <div className="session-journey" aria-label="セッションの流れ"><span className="active"><strong>1</strong> 開始</span><i /><span><strong>2</strong> プレー中</span><i /><span><strong>3</strong> 収支確定</span></div>
         <div className="entry-section-heading">プレーした場所</div>
