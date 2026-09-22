@@ -37,6 +37,7 @@ export const calendarDayTotal = (sessions: Session[]) => {
   if (converted.some(value => value === null)) return null
   return converted.reduce<number>((sum, value) => sum + (value ?? 0), 0)
 }
+export const tripsForDate = (date: string, trips: Trip[]) => trips.filter(trip => date >= trip.startDate && date <= trip.endDate)
 export const sessionsForTrip = (trip: Trip, sessions: Session[]) => sessions.filter(session => { const date = session.localDate || session.startedAt.slice(0, 10); return Boolean(session.endedAt) && date >= trip.startDate && date <= trip.endDate })
 export const tripPokerYen = (trip: Trip, sessions: Session[]) => {
   const values = sessionsForTrip(trip, sessions).map(session => asYen(profit(session), session.currency, session.rate))
