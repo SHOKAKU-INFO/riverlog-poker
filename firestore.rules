@@ -13,6 +13,7 @@ service cloud.firestore {
         && d.rebuy is int && d.rebuy >= 0
         && d.cashOut is int && d.cashOut >= 0
         && d.tips is int && d.tips >= 0
+        && (!('tripId' in d) || (d.tripId is string && d.tripId.size() <= 120))
         && d.note is string && d.note.size() <= 4000;
     }
     function validPlayer(id) {

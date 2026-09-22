@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { asYen, blindChoicesFor, calendarDayTotal, fromMinor, money, profit, sessionsForTrip, toMinor, tripExpenseYen, tripNetYen, tripPokerYen, tripsForDate, type Session, type Trip } from './domain'
+import { asYen, blindChoicesFor, calendarDayTotal, fromMinor, money, profit, sessionsForTrip, sessionsInTrip, toMinor, tripExpenseYen, tripNetYen, tripPokerYen, tripsForDate, type Session, type Trip } from './domain'
 
 const base: Session = { id: 's1', venue: 'Test', location: 'Las Vegas', game: 'ライブ', stakes: '$1/$3', currency: 'USD', startedAt: '2026-09-01T00:00:00Z', endedAt: '2026-09-01T04:00:00Z', buyIn: 30000, rebuy: 10000, cashOut: 50000, tips: 1000, note: '', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T04:00:00Z' }
 describe('currency accounting', () => {
@@ -28,5 +28,9 @@ describe('currency accounting', () => {
     expect(tripsForDate('2026-09-01', [trip])).toEqual([trip])
     expect(tripsForDate('2026-09-03', [trip])).toEqual([trip])
     expect(tripsForDate('2026-09-04', [trip])).toEqual([])
+    expect(sessionsInTrip(trip, [session, { ...session, id: 'running', endedAt: undefined }])).toHaveLength(2)
+    expect(sessionsForTrip(trip, [session, { ...session, id: 'running', endedAt: undefined }])).toHaveLength(1)
+    expect(sessionsInTrip(trip, [{ ...session, localDate: '2026-10-01', tripId: trip.id }])).toHaveLength(1)
+    expect(sessionsInTrip(trip, [{ ...session, tripId: 'another-trip' }])).toHaveLength(0)
   })
 })
