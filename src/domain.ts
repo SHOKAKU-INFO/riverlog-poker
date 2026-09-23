@@ -72,11 +72,36 @@ export const duration = (session: Session, now = Date.now()) => {
   return `${Math.floor(total / 60)}時間${String(total % 60).padStart(2, '0')}分`
 }
 
-const tablePositions: Record<TableSeatCount, string[]> = {
+const tablePositions: Record<number, string[]> = {
+  1: ['BTN'],
+  2: ['BTN / SB', 'BB'],
+  3: ['BTN', 'SB', 'BB'],
+  4: ['BTN', 'SB', 'BB', 'UTG'],
+  5: ['BTN', 'SB', 'BB', 'UTG', 'CO'],
   6: ['BTN', 'SB', 'BB', 'UTG', 'HJ', 'CO'],
+  7: ['BTN', 'SB', 'BB', 'UTG', 'LJ', 'HJ', 'CO'],
   8: ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'LJ', 'HJ', 'CO'],
   9: ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'UTG+2', 'LJ', 'HJ', 'CO'],
 }
 export const tablePosition = (seat: number, buttonSeat: number, seatCount: TableSeatCount) => tablePositions[seatCount][(seat - buttonSeat + seatCount) % seatCount]
 export const defaultPokerTable = (seatCount: TableSeatCount = 9): PokerTableState => ({ seatCount, heroSeat: 1, buttonSeat: 1, handNumber: 1, players: [] })
-export const nextPokerHand = (table: PokerTableState): PokerTableState => ({ ...table, buttonSeat: table.buttonSeat % table.seatCount + 1, handNumber: table.handNumber + 1 })
+export const activeTableSeats = (table: PokerTableState) => [...new Set([table.heroSeat, ...table.players.map(player => player.seat)])].filter(seat => seat >= 1 && seat <= table.seatCount).sort((a, b) => a - b)
+export const effectiveButtonSeat = (table: PokerTableState) => {
+  const active = activeTableSeats(table)
+  if (active.includes(table.buttonSeat)) return table.buttonSeat
+  return active.find(seat => seat > table.buttonSeat) || active[0] || table.heroSeat
+}
+export const tablePositionFor = (table: PokerTableState, seat: number) => {
+  const active = activeTableSeats(table)
+  if (!active.includes(seat)) return ''
+  const button = effectiveButtonSeat(table)
+  const start = active.indexOf(button)
+  const order = [...active.slice(start), ...active.slice(0, start)]
+  return tablePositions[active.length][order.indexOf(seat)]
+}
+export const nextPokerHand = (table: PokerTableState): PokerTableState => {
+  const active = activeTableSeats(table)
+  const button = effectiveButtonSeat(table)
+  const current = active.indexOf(button)
+  return { ...table, buttonSeat: active[(current + 1) % active.length] || table.heroSeat, handNumber: table.handNumber + 1 }
+}
