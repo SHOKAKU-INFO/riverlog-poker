@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
-import { Check, ChevronRight, RotateCw, Trash2, UserRound, X } from 'lucide-react'
-import { activeTableSeats, defaultPokerTable, effectiveButtonSeat, nextPokerHand, tablePositionFor, type Player, type PokerTableState, type Session, type TablePlayer, type TableSeatCount } from './domain'
+import { Check, ChevronRight, Settings2, Trash2, UserRound, X } from 'lucide-react'
+import { activeTableSeats, defaultPokerTable, defaultTableSettings, effectiveButtonSeat, forcedPokerActions, nextPokerHand, tablePositionFor, type Player, type PokerAction, type PokerTableSettings, type PokerTableState, type Session, type TablePlayer, type TableSeatCount } from './domain'
+import { HandRecorder } from './HandRecorder'
 
 const tagChoices = ['タイト', 'ルーズ', 'アグレッシブ', 'パッシブ', '常連', 'ショート']
 
@@ -15,22 +16,22 @@ export function PokerTable({ session, savedPlayers, onChange, onSavePlayer }: Pr
   const table = session.table || defaultPokerTable()
   const [editingSeat, setEditingSeat] = useState<number | null>(null)
   const [movingButton, setMovingButton] = useState(false)
+  const [editingSettings, setEditingSettings] = useState(false)
+  const [recordingHand, setRecordingHand] = useState(false)
+  const [draftActions, setDraftActions] = useState<PokerAction[] | null>(null)
   const seated = useMemo(() => new Map(table.players.map(player => [player.seat, player])), [table.players])
   const activeSeats = activeTableSeats(table)
   const dealerSeat = effectiveButtonSeat(table)
   const updateTable = (next: PokerTableState, message?: string) => onChange({ ...session, table: next, updatedAt: new Date().toISOString() }, message)
-  const changeSeatCount = (seatCount: TableSeatCount) => updateTable({
-    ...table,
-    seatCount,
-    heroSeat: Math.min(table.heroSeat, seatCount),
-    buttonSeat: Math.min(table.buttonSeat, seatCount),
-    players: table.players.filter(player => player.seat <= seatCount),
-  })
+  const changeSeatCount = (seatCount: TableSeatCount) => { setDraftActions(null); updateTable({
+    ...table, seatCount, heroSeat: Math.min(table.heroSeat, seatCount), buttonSeat: Math.min(table.buttonSeat, seatCount), players: table.players.filter(player => player.seat <= seatCount),
+  }) }
+  const openHandRecorder = () => { if (!draftActions) setDraftActions(forcedPokerActions(table)); setRecordingHand(true) }
 
   return <section className="table-notes">
     <div className="table-notes-head">
       <div><span>LIVE TABLE NOTES</span><h3>テーブルメモ</h3><p>席をタップして相手を記録</p></div>
-      <div className="table-head-controls"><button className={`move-button-control ${movingButton ? 'active' : ''}`} onClick={() => setMovingButton(value => !value)}><span>D</span>{movingButton ? '席を選択' : 'BTNを移動'}</button><div className="table-size-picker" aria-label="テーブル最大席数">
+      <div className="table-head-controls"><button className="table-settings-button" onClick={() => setEditingSettings(true)} aria-label="卓設定"><Settings2 size={15} /></button><button className={`move-button-control ${movingButton ? 'active' : ''}`} onClick={() => setMovingButton(value => !value)}><span>D</span>{movingButton ? '席を選択' : 'BTNを移動'}</button><div className="table-size-picker" aria-label="テーブル最大席数">
         {([6, 8, 9] as TableSeatCount[]).map(count => <button key={count} className={table.seatCount === count ? 'active' : ''} onClick={() => changeSeatCount(count)}>{count}席</button>)}
       </div>
       </div>
@@ -51,7 +52,7 @@ export function PokerTable({ session, savedPlayers, onChange, onSavePlayer }: Pr
           className={`poker-seat ${occupied ? 'occupied' : ''} ${seat === table.heroSeat ? 'hero' : ''} ${movingButton && occupied ? 'button-target' : ''}`}
           style={{ left: `${50 + Math.cos(angle) * 42}%`, top: `${50 + Math.sin(angle) * 39}%` }}
           onClick={() => {
-            if (movingButton && occupied) { updateTable({ ...table, buttonSeat: seat }, `BTNを${seat}番席へ移動しました`); setMovingButton(false); return }
+            if (movingButton && occupied) { setDraftActions(null); updateTable({ ...table, buttonSeat: seat }, `BTNを${seat}番席へ移動しました`); setMovingButton(false); return }
             setEditingSeat(seat)
           }}
           aria-label={`${seat}番席 ${position} ${player?.name || (seat === table.heroSeat ? '自分' : '空席')}`}
@@ -64,10 +65,12 @@ export function PokerTable({ session, savedPlayers, onChange, onSavePlayer }: Pr
       })}
     </div>
 
-    <button className="next-hand-button" onClick={() => updateTable(nextPokerHand(table), `ハンド #${table.handNumber + 1}へ進みました`)}>
-      <span><RotateCw size={21} /></span><span><small>BUTTON & POSITIONS</small><strong>次のハンド</strong></span><ChevronRight size={20} />
+    <button className="next-hand-button" onClick={openHandRecorder}>
+      <span>#{table.handNumber}</span><span><small>ACTION TRACKER</small><strong>ハンドを記録して次へ</strong></span><ChevronRight size={20} />
     </button>
-    <p className="table-help">全員のメモと席はそのまま、空席を飛ばして次の着席者へディーラーボタンを進めます。</p>
+    <p className="table-help">アクション、勝者、レーキを記録すると、スタックと次のポジションを自動更新します。</p>
+
+    {(table.hands?.length || 0) > 0 && <div className="hand-history"><div><strong>最近のハンド</strong><span>{table.hands?.length} hands</span></div>{[...(table.hands || [])].reverse().slice(0, 3).map(hand => <article key={hand.id}><span>#{hand.number}</span><strong>{hand.potBb.toFixed(1)} BB</strong><small>Rake {hand.rakeBb.toFixed(2)} · {hand.actions.length} actions</small></article>)}</div>}
 
     {editingSeat !== null && <SeatEditor
       seat={editingSeat}
@@ -85,12 +88,21 @@ export function PokerTable({ session, savedPlayers, onChange, onSavePlayer }: Pr
         const draft = { ...table, players, heroSeat: makeHero ? editingSeat : table.heroSeat, buttonSeat: makeButton ? editingSeat : table.buttonSeat }
         updateTable({ ...draft, buttonSeat: effectiveButtonSeat(draft) }, `${editingSeat}番席を保存しました`)
         if (playerId) onSavePlayer({ id: playerId, name: player.name, venue: session.venue, tags: player.tags, note: player.note, updatedAt: new Date().toISOString() })
+        setDraftActions(null)
         setMovingButton(false)
         setEditingSeat(null)
       }}
-      onClear={() => { const draft = { ...table, players: table.players.filter(item => item.seat !== editingSeat) }; updateTable({ ...draft, buttonSeat: effectiveButtonSeat(draft) }, `${editingSeat}番席を退席にしました`); setMovingButton(false); setEditingSeat(null) }}
+      onClear={() => { const draft = { ...table, players: table.players.filter(item => item.seat !== editingSeat) }; setDraftActions(null); updateTable({ ...draft, buttonSeat: effectiveButtonSeat(draft) }, `${editingSeat}番席を退席にしました`); setMovingButton(false); setEditingSeat(null) }}
     />}
+    {editingSettings && <TableSettingsEditor initial={table.settings || defaultTableSettings()} onClose={() => setEditingSettings(false)} onSave={settings => { setDraftActions(null); updateTable({ ...table, settings }, '卓設定を保存しました'); setEditingSettings(false) }} />}
+    {recordingHand && draftActions && <HandRecorder table={table} actions={draftActions} onActionsChange={setDraftActions} onBack={() => setRecordingHand(false)} onSkip={() => { updateTable(nextPokerHand(table), `ハンド #${table.handNumber + 1}へ進みました`); setDraftActions(null); setRecordingHand(false) }} onComplete={next => { updateTable(next, `ハンド #${table.handNumber}を記録しました`); setDraftActions(null); setRecordingHand(false) }} />}
   </section>
+}
+
+function TableSettingsEditor({ initial, onClose, onSave }: { initial: PokerTableSettings; onClose: () => void; onSave: (settings: PokerTableSettings) => void }) {
+  const [smallBlindBb, setSmallBlindBb] = useState(String(initial.smallBlindBb)); const [anteBb, setAnteBb] = useState(String(initial.anteBb)); const [rakePercent, setRakePercent] = useState(String(initial.rakePercent)); const [rakeCapBb, setRakeCapBb] = useState(String(initial.rakeCapBb))
+  const number = (value: string) => Math.max(0, Number(value) || 0)
+  return <div className="seat-editor-backdrop" onMouseDown={onClose}><div className="seat-editor table-settings-editor" onMouseDown={event => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="卓設定"><div className="seat-editor-grip" /><div className="seat-editor-head"><div><span>TABLE SETTINGS</span><h3>ブラインド・レーキ設定</h3></div><button className="icon-button" onClick={onClose} aria-label="閉じる"><X size={20} /></button></div><p className="settings-lead">設定値はBB単位です。ハンド開始時にSB・BB・アンティを自動でポットとスタックへ反映します。</p><form onSubmit={event => { event.preventDefault(); onSave({ smallBlindBb: number(smallBlindBb), anteBb: number(anteBb), rakePercent: number(rakePercent), rakeCapBb: number(rakeCapBb) }) }}><div className="seat-editor-row"><label className="field">SB（BB）<input required type="number" inputMode="decimal" min="0" step="0.01" value={smallBlindBb} onChange={event => setSmallBlindBb(event.target.value)} /></label><label className="field">アンティ（BB / 人）<input required type="number" inputMode="decimal" min="0" step="0.01" value={anteBb} onChange={event => setAnteBb(event.target.value)} /></label><label className="field">レーキ率（%）<input required type="number" inputMode="decimal" min="0" max="100" step="0.1" value={rakePercent} onChange={event => setRakePercent(event.target.value)} /></label><label className="field">レーキ上限（BB）<input required type="number" inputMode="decimal" min="0" step="0.01" value={rakeCapBb} onChange={event => setRakeCapBb(event.target.value)} /><small>0なら上限なし</small></label></div><div className="rake-preview"><span>例: 20 BBのポット</span><strong>レーキ {Math.min(20 * number(rakePercent) / 100, number(rakeCapBb) > 0 ? number(rakeCapBb) : Number.POSITIVE_INFINITY).toFixed(2)} BB</strong></div><div className="seat-editor-actions"><button type="button" className="secondary-button" onClick={onClose}>キャンセル</button><button className="primary-button" type="submit"><Check size={17} /> 設定を保存</button></div></form></div></div>
 }
 
 function SeatEditor({ seat, table, current, savedPlayers, venue, onClose, onSave, onClear }: {

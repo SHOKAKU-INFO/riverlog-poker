@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activeTableSeats, asYen, blindChoicesFor, calendarDayTotal, defaultPokerTable, fromMinor, money, nextPokerHand, profit, sessionRoi, sessionsForTrip, sessionsInTrip, tablePosition, tablePositionFor, toMinor, tripExpenseYen, tripNetYen, tripPokerYen, tripsForDate, type Session, type Trip } from './domain'
+import { activeTableSeats, asYen, blindChoicesFor, calendarDayTotal, currentStreetBet, defaultPokerTable, forcedPokerActions, fromMinor, money, nextPokerHand, profit, sessionRoi, sessionsForTrip, sessionsInTrip, settlePokerHand, streetContributionFor, tablePosition, tablePositionFor, toMinor, tripExpenseYen, tripNetYen, tripPokerYen, tripsForDate, type PokerAction, type Session, type Trip } from './domain'
 
 const base: Session = { id: 's1', venue: 'Test', location: 'Las Vegas', game: 'ライブ', stakes: '$1/$3', currency: 'USD', startedAt: '2026-09-01T00:00:00Z', endedAt: '2026-09-01T04:00:00Z', buyIn: 30000, rebuy: 10000, cashOut: 50000, tips: 1000, note: '', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T04:00:00Z' }
 describe('currency accounting', () => {
@@ -46,6 +46,25 @@ describe('currency accounting', () => {
     expect(nextPokerHand(table).buttonSeat).toBe(3)
     const afterLeaving = { ...table, buttonSeat: 3, players: table.players.filter(player => player.seat !== 3) }
     expect(nextPokerHand(afterLeaving).buttonSeat).toBe(8)
+  })
+  it('records blinds, applies capped rake, and updates every stack in BB', () => {
+    const createdAt = '2026-09-01T10:00:00Z'
+    const table = { ...defaultPokerTable(6), settings: { smallBlindBb: 0.5, anteBb: 0, rakePercent: 5, rakeCapBb: 3 }, players: [
+      { seat: 1, name: 'Hero', stackBb: 100, tags: [], note: '' },
+      { seat: 2, name: 'A', stackBb: 100, tags: [], note: '' },
+      { seat: 3, name: 'B', stackBb: 100, tags: [], note: '' },
+    ] }
+    const forced = forcedPokerActions(table, createdAt)
+    expect(forced.map(action => [action.seat, action.type, action.amountBb])).toEqual([[2, 'small-blind', 0.5], [3, 'big-blind', 1]])
+    const actions: PokerAction[] = [...forced, { id: 'call', street: 'preflop', seat: 1, type: 'call', amountBb: 1, toBb: 1, createdAt }]
+    expect(currentStreetBet(actions, 'preflop')).toBe(1)
+    expect(streetContributionFor(actions, 1, 'preflop')).toBe(1)
+    const settled = settlePokerHand(table, actions, [3], '2026-09-01T10:01:00Z')
+    expect(settled.record.potBb).toBe(2.5)
+    expect(settled.record.rakeBb).toBe(0.13)
+    expect(settled.table.players.map(player => player.stackBb)).toEqual([99, 99.5, 101.37])
+    expect(settled.table.handNumber).toBe(2)
+    expect(settled.table.buttonSeat).toBe(2)
   })
   it('calculates the true trip result from poker profit minus travel costs', () => {
     const trip: Trip = { id: 't1', name: 'Test trip', destination: 'Las Vegas', startDate: '2026-09-01', endDate: '2026-09-03', expenses: [{ id: 'e1', category: '宿泊', amount: 10000, currency: 'USD', spentAt: '2026-09-02', note: '', rate: { rate: 150, date: '2026-09-02', fetchedAt: '2026-09-02T10:00:00Z', provider: 'Test' } }], note: '', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-03T00:00:00Z' }

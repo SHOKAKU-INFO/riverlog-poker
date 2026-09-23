@@ -20,8 +20,17 @@ export type TableSeatCount = 6 | 8 | 9
 export interface TablePlayer {
   seat: number; playerId?: string; name: string; stackBb?: number; tags: string[]; note: string
 }
+export type PokerStreet = 'preflop' | 'flop' | 'turn' | 'river'
+export type PokerActionType = 'ante' | 'small-blind' | 'big-blind' | 'fold' | 'check' | 'call' | 'bet' | 'raise' | 'all-in'
+export interface PokerAction { id: string; street: PokerStreet; seat: number; type: PokerActionType; amountBb: number; toBb?: number; createdAt: string }
+export interface HandPlayerSnapshot { seat: number; name: string; startingStackBb: number; endingStackBb: number }
+export interface PokerHandRecord {
+  id: string; number: number; startedAt: string; endedAt: string; buttonSeat: number; players: HandPlayerSnapshot[]
+  actions: PokerAction[]; winnerSeats: number[]; potBb: number; rakeBb: number
+}
+export interface PokerTableSettings { smallBlindBb: number; anteBb: number; rakePercent: number; rakeCapBb: number }
 export interface PokerTableState {
-  seatCount: TableSeatCount; heroSeat: number; buttonSeat: number; handNumber: number; players: TablePlayer[]
+  seatCount: TableSeatCount; heroSeat: number; buttonSeat: number; handNumber: number; players: TablePlayer[]; settings?: PokerTableSettings; hands?: PokerHandRecord[]
 }
 export interface Session {
   id: string; venue: string; location: string; game: 'ライブ' | 'オンライン'; stakes: string; currency: Currency
@@ -85,6 +94,7 @@ const tablePositions: Record<number, string[]> = {
 }
 export const tablePosition = (seat: number, buttonSeat: number, seatCount: TableSeatCount) => tablePositions[seatCount][(seat - buttonSeat + seatCount) % seatCount]
 export const defaultPokerTable = (seatCount: TableSeatCount = 9): PokerTableState => ({ seatCount, heroSeat: 1, buttonSeat: 1, handNumber: 1, players: [] })
+export const defaultTableSettings = (): PokerTableSettings => ({ smallBlindBb: 0.5, anteBb: 0, rakePercent: 0, rakeCapBb: 0 })
 export const activeTableSeats = (table: PokerTableState) => [...new Set([table.heroSeat, ...table.players.map(player => player.seat)])].filter(seat => seat >= 1 && seat <= table.seatCount).sort((a, b) => a - b)
 export const effectiveButtonSeat = (table: PokerTableState) => {
   const active = activeTableSeats(table)
@@ -104,4 +114,34 @@ export const nextPokerHand = (table: PokerTableState): PokerTableState => {
   const button = effectiveButtonSeat(table)
   const current = active.indexOf(button)
   return { ...table, buttonSeat: active[(current + 1) % active.length] || table.heroSeat, handNumber: table.handNumber + 1 }
+}
+const roundBb = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100
+export const forcedPokerActions = (table: PokerTableState, createdAt = new Date().toISOString()): PokerAction[] => {
+  const settings = table.settings || defaultTableSettings()
+  const actions: PokerAction[] = []
+  if (settings.anteBb > 0) activeTableSeats(table).forEach(seat => actions.push({ id: crypto.randomUUID(), street: 'preflop', seat, type: 'ante', amountBb: settings.anteBb, createdAt }))
+  activeTableSeats(table).forEach(seat => {
+    const position = tablePositionFor(table, seat)
+    if (position.includes('SB')) actions.push({ id: crypto.randomUUID(), street: 'preflop', seat, type: 'small-blind', amountBb: settings.smallBlindBb, toBb: settings.smallBlindBb, createdAt })
+    if (position === 'BB') actions.push({ id: crypto.randomUUID(), street: 'preflop', seat, type: 'big-blind', amountBb: 1, toBb: 1, createdAt })
+  })
+  return actions
+}
+export const totalContributionFor = (actions: PokerAction[], seat: number) => roundBb(actions.filter(action => action.seat === seat).reduce((sum, action) => sum + action.amountBb, 0))
+export const streetContributionFor = (actions: PokerAction[], seat: number, street: PokerStreet) => roundBb(actions.filter(action => action.seat === seat && action.street === street && action.type !== 'ante').reduce((sum, action) => sum + action.amountBb, 0))
+export const currentStreetBet = (actions: PokerAction[], street: PokerStreet) => roundBb(Math.max(0, ...actions.filter(action => action.street === street).map(action => action.toBb || 0)))
+export const settlePokerHand = (table: PokerTableState, actions: PokerAction[], winnerSeats: number[], endedAt = new Date().toISOString()) => {
+  const settings = table.settings || defaultTableSettings()
+  const potBb = roundBb(actions.reduce((sum, action) => sum + action.amountBb, 0))
+  const percentageRake = roundBb(potBb * settings.rakePercent / 100)
+  const rakeBb = roundBb(settings.rakeCapBb > 0 ? Math.min(percentageRake, settings.rakeCapBb) : percentageRake)
+  const prizePerWinner = winnerSeats.length ? roundBb((potBb - rakeBb) / winnerSeats.length) : 0
+  const players = table.players.map(player => player.stackBb === undefined ? player : { ...player, stackBb: roundBb(player.stackBb - totalContributionFor(actions, player.seat) + (winnerSeats.includes(player.seat) ? prizePerWinner : 0)) })
+  const record: PokerHandRecord = {
+    id: crypto.randomUUID(), number: table.handNumber, startedAt: actions[0]?.createdAt || endedAt, endedAt,
+    buttonSeat: effectiveButtonSeat(table),
+    players: table.players.filter(player => player.stackBb !== undefined).map(player => ({ seat: player.seat, name: player.name, startingStackBb: player.stackBb as number, endingStackBb: players.find(item => item.seat === player.seat)?.stackBb as number })),
+    actions, winnerSeats, potBb, rakeBb,
+  }
+  return { table: nextPokerHand({ ...table, players, hands: [...(table.hands || []), record] }), record }
 }
