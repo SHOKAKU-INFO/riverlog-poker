@@ -4,7 +4,9 @@ import { activeTableSeats, currentStreetBet, defaultTableSettings, settlePokerHa
 
 const streets: { id: PokerStreet; label: string }[] = [{ id: 'preflop', label: 'プリフロップ' }, { id: 'flop', label: 'フロップ' }, { id: 'turn', label: 'ターン' }, { id: 'river', label: 'リバー' }]
 const actionLabels: Record<PokerActionType, string> = { ante: 'アンティ', 'small-blind': 'SB', 'big-blind': 'BB', straddle: 'ストラドル', fold: 'フォールド', check: 'チェック', call: 'コール', bet: 'ベット', raise: 'レイズ', 'all-in': 'オールイン' }
-const cardOptions = ['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2'].flatMap(rank => ['♠', '♥', '♦', '♣'].map(suit => `${rank}${suit}`))
+const cardRanks = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2']
+const cardSuits = [{ value: '♠', label: '♠️' }, { value: '♥', label: '♥️' }, { value: '♦', label: '♦️' }, { value: '♣', label: '♣️' }]
+type CardTarget = { group: 'heroCards' | 'board'; index: number }
 
 type Props = {
   table: PokerTableState
@@ -23,6 +25,8 @@ export function HandRecorder({ table, actions, onActionsChange, cards, onCardsCh
   const [amount, setAmount] = useState('')
   const [resultMode, setResultMode] = useState(false)
   const [winnerSeats, setWinnerSeats] = useState<number[]>([])
+  const [cardTarget, setCardTarget] = useState<CardTarget | null>(null)
+  const [cardRank, setCardRank] = useState('')
   const existingStraddle = actions.find(action => action.type === 'straddle')
   const [editingStraddle, setEditingStraddle] = useState(false)
   const [straddleSeat, setStraddleSeat] = useState<number | null>(existingStraddle?.seat || null)
@@ -67,7 +71,25 @@ export function HandRecorder({ table, actions, onActionsChange, cards, onCardsCh
     setEditingStraddle(false)
   }
   const usedCards = [...cards.heroCards, ...cards.board].filter(Boolean)
-  const cardSelect = (value: string, onChange: (value: string) => void, label: string) => <select key={label} className={value.includes('♥') || value.includes('♦') ? 'red' : ''} value={value} onChange={event => onChange(event.target.value)} aria-label={label}><option value="">—</option>{cardOptions.map(card => <option key={card} value={card} disabled={usedCards.includes(card) && card !== value}>{card}</option>)}</select>
+  const selectedCard = cardTarget ? cards[cardTarget.group][cardTarget.index] : ''
+  const cardSequence: CardTarget[] = [{ group: 'heroCards', index: 0 }, { group: 'heroCards', index: 1 }, ...Array.from({ length: 5 }, (_, index) => ({ group: 'board' as const, index }))]
+  const openCard = (target: CardTarget) => { const value = cards[target.group][target.index]; setCardTarget(target); setCardRank(value ? value.replace(/[♠♥♦♣]/g, '').replace('10', 'T') : '') }
+  const saveCard = (suit: string) => {
+    if (!cardTarget || !cardRank) return
+    const card = `${cardRank}${suit}`
+    if (usedCards.includes(card) && card !== selectedCard) return
+    const nextValues = cards[cardTarget.group].map((value, index) => index === cardTarget.index ? card : value)
+    onCardsChange({ ...cards, [cardTarget.group]: nextValues })
+    const currentIndex = cardSequence.findIndex(target => target.group === cardTarget.group && target.index === cardTarget.index)
+    const nextTarget = cardSequence[currentIndex + 1] || null
+    setCardTarget(nextTarget); setCardRank(nextTarget ? cards[nextTarget.group][nextTarget.index].replace(/[♠♥♦♣]/g, '').replace('10', 'T') : '')
+  }
+  const clearCard = () => {
+    if (!cardTarget) return
+    onCardsChange({ ...cards, [cardTarget.group]: cards[cardTarget.group].map((value, index) => index === cardTarget.index ? '' : value) })
+    setCardRank('')
+  }
+  const cardSlot = (value: string, target: CardTarget, label: string) => <button key={label} className={`card-slot ${value.includes('♥') || value.includes('♦') ? 'red' : ''} ${cardTarget?.group === target.group && cardTarget.index === target.index ? 'active' : ''}`} onClick={() => openCard(target)} aria-label={label}>{value || '＋'}</button>
   const timeline = useMemo(() => actions.map(action => ({ ...action, player: players.get(action.seat) })), [actions, table.players])
 
   return <div className="hand-recorder-backdrop"><div className="hand-recorder" role="dialog" aria-modal="true" aria-label={`ハンド ${table.handNumber} の記録`}>
@@ -76,7 +98,7 @@ export function HandRecorder({ table, actions, onActionsChange, cards, onCardsCh
     {!resultMode ? <>
       <div className="street-tabs">{streets.map(item => <button key={item.id} className={street === item.id ? 'active' : ''} onClick={() => setStreet(item.id)}>{item.label}<small>{actions.filter(action => action.street === item.id && !['ante', 'small-blind', 'big-blind', 'straddle'].includes(action.type)).length}</small></button>)}</div>
       <section className="action-pot-bar"><span>現在のポット<strong>{pot.toFixed(1)} BB</strong></span><span>現在のベット<strong>{currentBet.toFixed(1)} BB</strong></span><span>記録<strong>{userActions.length} actions</strong></span></section>
-      <section className="cards-recorder"><div className="hole-cards"><span>自分のハンド</span><div>{cards.heroCards.map((card, index) => cardSelect(card, value => onCardsChange({ ...cards, heroCards: cards.heroCards.map((item, itemIndex) => itemIndex === index ? value : item) }), `ホールカード${index + 1}`))}</div></div><div className="board-cards"><span>ボード</span><div className="board-card-groups"><div><small>FLOP</small>{cards.board.slice(0, 3).map((card, index) => cardSelect(card, value => onCardsChange({ ...cards, board: cards.board.map((item, itemIndex) => itemIndex === index ? value : item) }), `フロップ${index + 1}`))}</div><div><small>TURN</small>{cardSelect(cards.board[3], value => onCardsChange({ ...cards, board: cards.board.map((item, index) => index === 3 ? value : item) }), 'ターン')}</div><div><small>RIVER</small>{cardSelect(cards.board[4], value => onCardsChange({ ...cards, board: cards.board.map((item, index) => index === 4 ? value : item) }), 'リバー')}</div></div></div></section>
+      <section className="cards-recorder"><div className="hole-cards"><span>自分のハンド</span><div>{cards.heroCards.map((card, index) => cardSlot(card, { group: 'heroCards', index }, `ホールカード${index + 1}`))}</div></div><div className="board-cards"><span>ボード</span><div className="board-card-groups"><div><small>FLOP</small>{cards.board.slice(0, 3).map((card, index) => cardSlot(card, { group: 'board', index }, `フロップ${index + 1}`))}</div><div><small>TURN</small>{cardSlot(cards.board[3], { group: 'board', index: 3 }, 'ターン')}</div><div><small>RIVER</small>{cardSlot(cards.board[4], { group: 'board', index: 4 }, 'リバー')}</div></div></div>{cardTarget && <div className="card-picker"><div className="card-picker-head"><strong>{cardTarget.group === 'heroCards' ? `ハンド ${cardTarget.index + 1}枚目` : cardTarget.index < 3 ? `フロップ ${cardTarget.index + 1}枚目` : cardTarget.index === 3 ? 'ターン' : 'リバー'}</strong><button onClick={clearCard}>消去</button></div><div className="rank-picker">{cardRanks.map(rank => <button key={rank} className={cardRank === rank ? 'active' : ''} onClick={() => setCardRank(rank)}>{rank}</button>)}</div><div className="suit-picker">{cardSuits.map(suit => { const candidate = `${cardRank}${suit.value}`; const unavailable = Boolean(cardRank && usedCards.includes(candidate) && candidate !== selectedCard); return <button key={suit.value} className={suit.value === '♥' || suit.value === '♦' ? 'red' : ''} disabled={!cardRank || unavailable} onClick={() => saveCard(suit.value)}>{suit.label}</button> })}</div><small>ランク → スートの順に選択すると、次のカードへ進みます。</small></div>}</section>
       {street === 'preflop' && <section className={`straddle-control ${existingStraddle ? 'active' : ''}`}><button onClick={() => setEditingStraddle(value => !value)}><span className="straddle-mark">S</span><span><strong>{existingStraddle ? `${players.get(existingStraddle.seat)?.name || `${existingStraddle.seat}番席`} · ${existingStraddle.amountBb} BB` : 'ストラドルなし'}</strong><small>UTG・ボタン・任意席に対応</small></span><ChevronRight size={16} /></button>{editingStraddle && <div className="straddle-editor"><div className="straddle-seat-options"><button className={straddleSeat === null ? 'active' : ''} onClick={() => setStraddleSeat(null)}>なし</button>{activeSeats.map(seat => <button key={seat} className={straddleSeat === seat ? 'active' : ''} onClick={() => setStraddleSeat(seat)}><span>{tablePositionFor(table, seat)}</span>{players.get(seat)?.name || '自分'}</button>)}</div><label>ストラドル額<input type="number" inputMode="decimal" min="0" step="0.5" value={straddleAmount} onChange={event => setStraddleAmount(event.target.value)} /><span>BB</span></label><button className="primary-button" onClick={saveStraddle}><Check size={15} /> このハンドに適用</button></div>}</section>}
       {missingStacks.length > 0 && <button className="stack-warning" onClick={onBack}><ArrowLeft size={16} /><span><strong>スタック未入力の席があります</strong><small>{missingStacks.join('・')}番席を卓画面から入力してください</small></span><ChevronRight size={16} /></button>}
       <div className="action-layout">
