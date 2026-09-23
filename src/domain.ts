@@ -16,10 +16,17 @@ const blindChoices: Record<Currency, string[]> = {
 export const blindChoicesFor = (currency: Currency) => blindChoices[currency]
 
 export interface Rate { rate: number; date: string; fetchedAt: string; provider: string; stale?: boolean }
+export type TableSeatCount = 6 | 8 | 9
+export interface TablePlayer {
+  seat: number; playerId?: string; name: string; stackBb?: number; tags: string[]; note: string
+}
+export interface PokerTableState {
+  seatCount: TableSeatCount; heroSeat: number; buttonSeat: number; handNumber: number; players: TablePlayer[]
+}
 export interface Session {
   id: string; venue: string; location: string; game: 'ライブ' | 'オンライン'; stakes: string; currency: Currency
   startedAt: string; localDate?: string; endedAt?: string; buyIn: number; rebuy: number; cashOut: number; tips: number
-  note: string; format?: 'cash' | 'tournament'; tripId?: string; rate?: Rate; createdAt: string; updatedAt: string
+  note: string; format?: 'cash' | 'tournament'; tripId?: string; rate?: Rate; table?: PokerTableState; createdAt: string; updatedAt: string
 }
 export interface Player { id: string; name: string; venue: string; tags: string[]; note: string; updatedAt: string }
 export type ExpenseCategory = '宿泊' | '食事' | '交通' | 'その他'
@@ -65,22 +72,11 @@ export const duration = (session: Session, now = Date.now()) => {
   return `${Math.floor(total / 60)}時間${String(total % 60).padStart(2, '0')}分`
 }
 
-const stamp = (days: number, hour = 10) => new Date(Date.now() - days * 86_400_000 + hour * 3_600_000).toISOString()
-export const sampleSessions: Session[] = [
-  { id: 'demo-1', venue: 'Bellagio', location: 'Las Vegas', game: 'ライブ', stakes: '2-5', currency: 'USD', startedAt: stamp(1), endedAt: stamp(1, 16), buyIn: 60000, rebuy: 30000, cashOut: 137500, tips: 1500, note: '夕方のテーブル。常連が多め。', rate: { rate: 149.82, date: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10), fetchedAt: stamp(1), provider: 'Frankfurter' }, createdAt: stamp(1), updatedAt: stamp(1) },
-  { id: 'demo-2', venue: 'Aria', location: 'Las Vegas', game: 'ライブ', stakes: '1-3', currency: 'USD', startedAt: stamp(3), endedAt: stamp(3, 14), buyIn: 30000, rebuy: 0, cashOut: 20500, tips: 500, note: '', rate: { rate: 149.24, date: new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10), fetchedAt: stamp(3), provider: 'Frankfurter' }, createdAt: stamp(3), updatedAt: stamp(3) },
-  { id: 'demo-3', venue: 'PokerStars', location: 'Online', game: 'オンライン', stakes: '0.5-1', currency: 'USD', startedAt: stamp(5), endedAt: stamp(5, 13), buyIn: 20000, rebuy: 0, cashOut: 27800, tips: 0, note: '', rate: { rate: 148.64, date: new Date(Date.now() - 5 * 86_400_000).toISOString().slice(0, 10), fetchedAt: stamp(5), provider: 'Frankfurter' }, createdAt: stamp(5), updatedAt: stamp(5) },
-]
-export const samplePlayers: Player[] = [
-  { id: 'demo-p1', name: 'Michael', venue: 'Bellagio', tags: ['タイト', '常連'], note: '3番席。プリフロップは堅め、リバーの大きなベットは強い傾向。', updatedAt: stamp(1) },
-  { id: 'demo-p2', name: 'Kei', venue: 'Bellagio', tags: ['アグレッシブ'], note: '8番席。ボタンからのオープン頻度が高い。', updatedAt: stamp(1) },
-]
-export const sampleTrips: Trip[] = [{
-  id: 'demo-trip-1', name: 'ラスベガス遠征', destination: 'Las Vegas',
-  startDate: new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10), endDate: new Date().toISOString().slice(0, 10),
-  expenses: [
-    { id: 'demo-e1', category: '宿泊', amount: 42000, currency: 'USD', spentAt: new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10), note: 'Hotel', rate: { rate: 149.5, date: new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10), fetchedAt: stamp(6), provider: 'Frankfurter' } },
-    { id: 'demo-e2', category: '交通', amount: 120000, currency: 'JPY', spentAt: new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10), note: '日本で予約した往復航空券' },
-    { id: 'demo-e3', category: '食事', amount: 12000, currency: 'USD', spentAt: new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10), note: '', rate: { rate: 149.5, date: new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10), fetchedAt: stamp(2), provider: 'Frankfurter' } },
-  ], note: '', createdAt: stamp(7), updatedAt: stamp(1),
-}]
+const tablePositions: Record<TableSeatCount, string[]> = {
+  6: ['BTN', 'SB', 'BB', 'UTG', 'HJ', 'CO'],
+  8: ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'LJ', 'HJ', 'CO'],
+  9: ['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'UTG+2', 'LJ', 'HJ', 'CO'],
+}
+export const tablePosition = (seat: number, buttonSeat: number, seatCount: TableSeatCount) => tablePositions[seatCount][(seat - buttonSeat + seatCount) % seatCount]
+export const defaultPokerTable = (seatCount: TableSeatCount = 9): PokerTableState => ({ seatCount, heroSeat: 1, buttonSeat: 1, handNumber: 1, players: [] })
+export const nextPokerHand = (table: PokerTableState): PokerTableState => ({ ...table, buttonSeat: table.buttonSeat % table.seatCount + 1, handNumber: table.handNumber + 1 })

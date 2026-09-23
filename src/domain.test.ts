@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { asYen, blindChoicesFor, calendarDayTotal, fromMinor, money, profit, sessionRoi, sessionsForTrip, sessionsInTrip, toMinor, tripExpenseYen, tripNetYen, tripPokerYen, tripsForDate, type Session, type Trip } from './domain'
+import { asYen, blindChoicesFor, calendarDayTotal, defaultPokerTable, fromMinor, money, nextPokerHand, profit, sessionRoi, sessionsForTrip, sessionsInTrip, tablePosition, toMinor, tripExpenseYen, tripNetYen, tripPokerYen, tripsForDate, type Session, type Trip } from './domain'
 
 const base: Session = { id: 's1', venue: 'Test', location: 'Las Vegas', game: 'ライブ', stakes: '$1/$3', currency: 'USD', startedAt: '2026-09-01T00:00:00Z', endedAt: '2026-09-01T04:00:00Z', buyIn: 30000, rebuy: 10000, cashOut: 50000, tips: 1000, note: '', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T04:00:00Z' }
 describe('currency accounting', () => {
@@ -21,6 +21,17 @@ describe('currency accounting', () => {
   it('calculates actual tournament ROI from entries and winnings', () => {
     const tournament: Session = { ...base, format: 'tournament', buyIn: 10000, rebuy: 10000, cashOut: 50000, tips: 0 }
     expect(sessionRoi(tournament)).toBe(1.5)
+  })
+  it('rotates the dealer button and every derived position for the next hand', () => {
+    const first = defaultPokerTable(9)
+    expect(tablePosition(1, first.buttonSeat, first.seatCount)).toBe('BTN')
+    expect(tablePosition(2, first.buttonSeat, first.seatCount)).toBe('SB')
+    expect(tablePosition(9, first.buttonSeat, first.seatCount)).toBe('CO')
+    const second = nextPokerHand(first)
+    expect(second.handNumber).toBe(2)
+    expect(second.buttonSeat).toBe(2)
+    expect(tablePosition(1, second.buttonSeat, second.seatCount)).toBe('CO')
+    expect(tablePosition(2, second.buttonSeat, second.seatCount)).toBe('BTN')
   })
   it('calculates the true trip result from poker profit minus travel costs', () => {
     const trip: Trip = { id: 't1', name: 'Test trip', destination: 'Las Vegas', startDate: '2026-09-01', endDate: '2026-09-03', expenses: [{ id: 'e1', category: '宿泊', amount: 10000, currency: 'USD', spentAt: '2026-09-02', note: '', rate: { rate: 150, date: '2026-09-02', fetchedAt: '2026-09-02T10:00:00Z', provider: 'Test' } }], note: '', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-03T00:00:00Z' }
