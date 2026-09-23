@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activeTableSeats, asYen, blindChoicesFor, calendarDayTotal, currentStreetBet, defaultPokerTable, forcedPokerActions, fromMinor, money, nextPokerHand, profit, sessionRoi, sessionsForTrip, sessionsInTrip, settlePokerHand, streetContributionFor, tablePosition, tablePositionFor, toMinor, tripExpenseYen, tripNetYen, tripPokerYen, tripsForDate, type PokerAction, type Session, type Trip } from './domain'
+import { activeTableSeats, asYen, blindChoicesFor, calendarDayTotal, currentStreetBet, defaultPokerTable, forcedPokerActions, fromMinor, money, movePokerSeat, nextPokerHand, profit, sessionRoi, sessionsForTrip, sessionsInTrip, settlePokerHand, streetContributionFor, tablePosition, tablePositionFor, toMinor, tripExpenseYen, tripNetYen, tripPokerYen, tripsForDate, unfoldedTableSeats, type PokerAction, type Session, type Trip } from './domain'
 
 const base: Session = { id: 's1', venue: 'Test', location: 'Las Vegas', game: 'ライブ', stakes: '$1/$3', currency: 'USD', startedAt: '2026-09-01T00:00:00Z', endedAt: '2026-09-01T04:00:00Z', buyIn: 30000, rebuy: 10000, cashOut: 50000, tips: 1000, note: '', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T04:00:00Z' }
 describe('currency accounting', () => {
@@ -65,6 +65,36 @@ describe('currency accounting', () => {
     expect(settled.table.players.map(player => player.stackBb)).toEqual([99, 99.5, 101.37])
     expect(settled.table.handNumber).toBe(2)
     expect(settled.table.buttonSeat).toBe(2)
+  })
+  it('supports UTG and button straddles as forced preflop bets', () => {
+    const players = [1, 2, 3, 4, 5, 6].map(seat => ({ seat, name: `P${seat}`, stackBb: 100, tags: [], note: '' }))
+    const baseTable = { ...defaultPokerTable(6), players }
+    const utg = forcedPokerActions({ ...baseTable, settings: { smallBlindBb: 0.5, anteBb: 0, rakePercent: 0, rakeCapBb: 0, straddleMode: 'utg' as const, straddleBb: 2 } })
+    expect(utg.find(action => action.type === 'straddle')).toMatchObject({ seat: 4, amountBb: 2, toBb: 2 })
+    const button = forcedPokerActions({ ...baseTable, settings: { smallBlindBb: 0.5, anteBb: 0, rakePercent: 0, rakeCapBb: 0, straddleMode: 'button' as const, straddleBb: 3 } })
+    expect(button.find(action => action.type === 'straddle')).toMatchObject({ seat: 1, amountBb: 3, toBb: 3 })
+  })
+  it('moves or swaps seats together with hero and dealer state', () => {
+    const table = { ...defaultPokerTable(6), buttonSeat: 2, players: [
+      { seat: 1, name: 'Hero', stackBb: 100, tags: [], note: '' },
+      { seat: 2, name: 'A', stackBb: 80, tags: [], note: '' },
+      { seat: 4, name: 'B', stackBb: 120, tags: [], note: '' },
+    ] }
+    const swapped = movePokerSeat(table, 2, 4)
+    expect(swapped.buttonSeat).toBe(4)
+    expect(swapped.players.find(player => player.seat === 4)?.name).toBe('A')
+    expect(swapped.players.find(player => player.seat === 2)?.name).toBe('B')
+    const movedHero = movePokerSeat(swapped, 1, 5)
+    expect(movedHero.heroSeat).toBe(5)
+    expect(movedHero.players.find(player => player.seat === 5)?.name).toBe('Hero')
+  })
+  it('identifies the automatic winner when everyone else folds', () => {
+    const table = { ...defaultPokerTable(6), players: [1, 2, 3].map(seat => ({ seat, name: `P${seat}`, stackBb: 100, tags: [], note: '' })) }
+    const folds: PokerAction[] = [
+      { id: 'f1', street: 'preflop', seat: 2, type: 'fold', amountBb: 0, createdAt: '2026-09-01T00:00:00Z' },
+      { id: 'f2', street: 'preflop', seat: 3, type: 'fold', amountBb: 0, createdAt: '2026-09-01T00:00:01Z' },
+    ]
+    expect(unfoldedTableSeats(table, folds)).toEqual([1])
   })
   it('calculates the true trip result from poker profit minus travel costs', () => {
     const trip: Trip = { id: 't1', name: 'Test trip', destination: 'Las Vegas', startDate: '2026-09-01', endDate: '2026-09-03', expenses: [{ id: 'e1', category: '宿泊', amount: 10000, currency: 'USD', spentAt: '2026-09-02', note: '', rate: { rate: 150, date: '2026-09-02', fetchedAt: '2026-09-02T10:00:00Z', provider: 'Test' } }], note: '', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-03T00:00:00Z' }
