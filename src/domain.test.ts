@@ -59,12 +59,14 @@ describe('currency accounting', () => {
     const actions: PokerAction[] = [...forced, { id: 'call', street: 'preflop', seat: 1, type: 'call', amountBb: 1, toBb: 1, createdAt }]
     expect(currentStreetBet(actions, 'preflop')).toBe(1)
     expect(streetContributionFor(actions, 1, 'preflop')).toBe(1)
-    const settled = settlePokerHand(table, actions, [3], '2026-09-01T10:01:00Z')
+    const settled = settlePokerHand(table, actions, [3], '2026-09-01T10:01:00Z', { heroCards: ['A♠', 'K♠'], board: ['Q♠', 'J♠', '10♠', '', ''] })
     expect(settled.record.potBb).toBe(2.5)
     expect(settled.record.rakeBb).toBe(0.13)
     expect(settled.table.players.map(player => player.stackBb)).toEqual([99, 99.5, 101.37])
     expect(settled.table.handNumber).toBe(2)
     expect(settled.table.buttonSeat).toBe(2)
+    expect(settled.record.heroCards).toEqual(['A♠', 'K♠'])
+    expect(settled.record.board).toEqual(['Q♠', 'J♠', '10♠'])
   })
   it('supports UTG and button straddles as forced preflop bets', () => {
     const players = [1, 2, 3, 4, 5, 6].map(seat => ({ seat, name: `P${seat}`, stackBb: 100, tags: [], note: '' }))

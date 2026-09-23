@@ -4,17 +4,20 @@ import { activeTableSeats, currentStreetBet, defaultTableSettings, settlePokerHa
 
 const streets: { id: PokerStreet; label: string }[] = [{ id: 'preflop', label: 'プリフロップ' }, { id: 'flop', label: 'フロップ' }, { id: 'turn', label: 'ターン' }, { id: 'river', label: 'リバー' }]
 const actionLabels: Record<PokerActionType, string> = { ante: 'アンティ', 'small-blind': 'SB', 'big-blind': 'BB', straddle: 'ストラドル', fold: 'フォールド', check: 'チェック', call: 'コール', bet: 'ベット', raise: 'レイズ', 'all-in': 'オールイン' }
+const cardOptions = ['A', 'K', 'Q', 'J', '10', '9', '8', '7', '6', '5', '4', '3', '2'].flatMap(rank => ['♠', '♥', '♦', '♣'].map(suit => `${rank}${suit}`))
 
 type Props = {
   table: PokerTableState
   actions: PokerAction[]
   onActionsChange: (actions: PokerAction[]) => void
+  cards: { heroCards: string[]; board: string[] }
+  onCardsChange: (cards: { heroCards: string[]; board: string[] }) => void
   onBack: () => void
   onComplete: (table: PokerTableState) => void
   onSkip: () => void
 }
 
-export function HandRecorder({ table, actions, onActionsChange, onBack, onComplete, onSkip }: Props) {
+export function HandRecorder({ table, actions, onActionsChange, cards, onCardsChange, onBack, onComplete, onSkip }: Props) {
   const [street, setStreet] = useState<PokerStreet>('preflop')
   const [selectedSeat, setSelectedSeat] = useState<number | null>(null)
   const [amount, setAmount] = useState('')
@@ -63,6 +66,8 @@ export function HandRecorder({ table, actions, onActionsChange, onBack, onComple
     onActionsChange(straddleSeat !== null && value > 0 ? [...withoutStraddle, { id: crypto.randomUUID(), street: 'preflop', seat: straddleSeat, type: 'straddle', amountBb: value, toBb: value, createdAt: new Date().toISOString() }] : withoutStraddle)
     setEditingStraddle(false)
   }
+  const usedCards = [...cards.heroCards, ...cards.board].filter(Boolean)
+  const cardSelect = (value: string, onChange: (value: string) => void, label: string) => <select key={label} className={value.includes('♥') || value.includes('♦') ? 'red' : ''} value={value} onChange={event => onChange(event.target.value)} aria-label={label}><option value="">—</option>{cardOptions.map(card => <option key={card} value={card} disabled={usedCards.includes(card) && card !== value}>{card}</option>)}</select>
   const timeline = useMemo(() => actions.map(action => ({ ...action, player: players.get(action.seat) })), [actions, table.players])
 
   return <div className="hand-recorder-backdrop"><div className="hand-recorder" role="dialog" aria-modal="true" aria-label={`ハンド ${table.handNumber} の記録`}>
@@ -71,6 +76,7 @@ export function HandRecorder({ table, actions, onActionsChange, onBack, onComple
     {!resultMode ? <>
       <div className="street-tabs">{streets.map(item => <button key={item.id} className={street === item.id ? 'active' : ''} onClick={() => setStreet(item.id)}>{item.label}<small>{actions.filter(action => action.street === item.id && !['ante', 'small-blind', 'big-blind', 'straddle'].includes(action.type)).length}</small></button>)}</div>
       <section className="action-pot-bar"><span>現在のポット<strong>{pot.toFixed(1)} BB</strong></span><span>現在のベット<strong>{currentBet.toFixed(1)} BB</strong></span><span>記録<strong>{userActions.length} actions</strong></span></section>
+      <section className="cards-recorder"><div className="hole-cards"><span>自分のハンド</span><div>{cards.heroCards.map((card, index) => cardSelect(card, value => onCardsChange({ ...cards, heroCards: cards.heroCards.map((item, itemIndex) => itemIndex === index ? value : item) }), `ホールカード${index + 1}`))}</div></div><div className="board-cards"><span>ボード</span><div className="board-card-groups"><div><small>FLOP</small>{cards.board.slice(0, 3).map((card, index) => cardSelect(card, value => onCardsChange({ ...cards, board: cards.board.map((item, itemIndex) => itemIndex === index ? value : item) }), `フロップ${index + 1}`))}</div><div><small>TURN</small>{cardSelect(cards.board[3], value => onCardsChange({ ...cards, board: cards.board.map((item, index) => index === 3 ? value : item) }), 'ターン')}</div><div><small>RIVER</small>{cardSelect(cards.board[4], value => onCardsChange({ ...cards, board: cards.board.map((item, index) => index === 4 ? value : item) }), 'リバー')}</div></div></div></section>
       {street === 'preflop' && <section className={`straddle-control ${existingStraddle ? 'active' : ''}`}><button onClick={() => setEditingStraddle(value => !value)}><span className="straddle-mark">S</span><span><strong>{existingStraddle ? `${players.get(existingStraddle.seat)?.name || `${existingStraddle.seat}番席`} · ${existingStraddle.amountBb} BB` : 'ストラドルなし'}</strong><small>UTG・ボタン・任意席に対応</small></span><ChevronRight size={16} /></button>{editingStraddle && <div className="straddle-editor"><div className="straddle-seat-options"><button className={straddleSeat === null ? 'active' : ''} onClick={() => setStraddleSeat(null)}>なし</button>{activeSeats.map(seat => <button key={seat} className={straddleSeat === seat ? 'active' : ''} onClick={() => setStraddleSeat(seat)}><span>{tablePositionFor(table, seat)}</span>{players.get(seat)?.name || '自分'}</button>)}</div><label>ストラドル額<input type="number" inputMode="decimal" min="0" step="0.5" value={straddleAmount} onChange={event => setStraddleAmount(event.target.value)} /><span>BB</span></label><button className="primary-button" onClick={saveStraddle}><Check size={15} /> このハンドに適用</button></div>}</section>}
       {missingStacks.length > 0 && <button className="stack-warning" onClick={onBack}><ArrowLeft size={16} /><span><strong>スタック未入力の席があります</strong><small>{missingStacks.join('・')}番席を卓画面から入力してください</small></span><ChevronRight size={16} /></button>}
       <div className="action-layout">
@@ -84,7 +90,7 @@ export function HandRecorder({ table, actions, onActionsChange, onBack, onComple
       <section className="winner-picker"><div className="action-section-title"><span><Trophy size={15} /></span><div><strong>{availableWinners.length === 1 ? 'フォールド勝ちを自動判定' : '勝者を選択'}</strong><small>{availableWinners.length === 1 ? '残ったプレイヤーへポットを配分' : 'チョップは複数選択'}</small></div></div><div>{availableWinners.map(seat => { const player = players.get(seat); return <button key={seat} className={resolvedWinnerSeats.includes(seat) ? 'active' : ''} onClick={() => setWinnerSeats(current => current.includes(seat) ? current.filter(item => item !== seat) : [...current, seat])}><span>{tablePositionFor(table, seat)}</span><strong>{player?.name || '自分'}</strong>{resolvedWinnerSeats.includes(seat) && <Check size={17} />}</button> })}</div></section>
       {missingStacks.length > 0 && <button className="stack-warning" onClick={onBack}><ArrowLeft size={16} /><span><strong>自動計算には全員のスタックが必要です</strong><small>戻って{missingStacks.join('・')}番席を入力</small></span><ChevronRight size={16} /></button>}
       <section className="stack-preview"><strong>記録後のスタック</strong>{activeSeats.map(seat => { const player = players.get(seat); const contribution = totalContributionFor(actions, seat); const win = resolvedWinnerSeats.includes(seat) && resolvedWinnerSeats.length ? (pot - rake) / resolvedWinnerSeats.length : 0; return <div key={seat}><span>{player?.name || '自分'}<small>{contribution.toFixed(1)} BB 投入</small></span><b>{player?.stackBb === undefined ? '—' : `${(player.stackBb - contribution + win).toFixed(1)} BB`}</b></div> })}</section>
-      <footer className="hand-recorder-actions"><button className="secondary-button" onClick={() => setResultMode(false)}><ArrowLeft size={16} /> アクションへ戻る</button><button className="primary-button" disabled={resolvedWinnerSeats.length === 0 || missingStacks.length > 0} onClick={() => onComplete(settlePokerHand(table, actions, resolvedWinnerSeats).table)}><Check size={17} /> 確定して次のハンド</button></footer>
+      <footer className="hand-recorder-actions"><button className="secondary-button" onClick={() => setResultMode(false)}><ArrowLeft size={16} /> アクションへ戻る</button><button className="primary-button" disabled={resolvedWinnerSeats.length === 0 || missingStacks.length > 0} onClick={() => onComplete(settlePokerHand(table, actions, resolvedWinnerSeats, new Date().toISOString(), cards).table)}><Check size={17} /> 確定して次のハンド</button></footer>
     </>}
   </div></div>
 }
