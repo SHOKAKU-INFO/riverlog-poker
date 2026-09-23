@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3, CloudOff, Copy, Download, ExternalLink, Globe2, LayoutDashboard, LogOut, MapPin, Menu, MoreHorizontal, Plane, Plus, Search, Settings2, ShieldCheck, Spade, Tag, Trash2, UserRound, Users, Wallet, X } from 'lucide-react'
 import type { User } from 'firebase/auth'
-import { asYen, blindChoicesFor, calendarDayTotal, currencies, dateLabel, duration, fromMinor, hours, money, profit, samplePlayers, sampleSessions, sampleTrips, sessionFormat, sessionRoi, shortDate, toMinor, tripsForDate, type Currency, type Player, type Rate, type Session, type Trip } from './domain'
+import { asYen, blindChoicesFor, calendarDayTotal, currencies, dateLabel, duration, fromMinor, hours, money, profit, sessionFormat, sessionRoi, shortDate, toMinor, tripsForDate, type Currency, type Player, type Rate, type Session, type Trip } from './domain'
 import { deletePlayerRemote, deleteSessionRemote, deleteTripRemote, firebaseConfigured, loadRemote, login, logout, savePlayerRemote, saveSessionRemote, saveTripRemote, watchUser } from './firebase'
 import { getRate } from './rates'
 import { authErrorMessage, detectInAppBrowser, type InAppBrowser } from './browser'
 import { TripForm, TripsPage } from './Trips'
+import { PokerTable } from './PokerTable'
 
 type Page = 'overview' | 'sessions' | 'trips' | 'calendar' | 'analytics' | 'players' | 'settings'
 const nav: { page: Page; label: string; icon: typeof LayoutDashboard }[] = [
@@ -19,6 +20,7 @@ const nav: { page: Page; label: string; icon: typeof LayoutDashboard }[] = [
 ]
 const title: Record<Page, string> = { overview: 'ダッシュボード', sessions: 'セッション', trips: '遠征収支', calendar: 'カレンダー', analytics: '収支分析', players: 'プレイヤーメモ', settings: '設定・データ' }
 const readLocal = <T,>(key: string, fallback: T): T => { try { const value = localStorage.getItem(key); return value ? JSON.parse(value) as T : fallback } catch { return fallback } }
+const readLocalList = <T extends { id: string },>(key: string): T[] => readLocal<T[]>(key, []).filter(item => !item.id.startsWith('demo-'))
 const today = () => new Date().toISOString().slice(0, 10)
 const localInputDate = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
 const formatYen = (value: number | null, signed = false) => value === null ? 'レート未取得' : money(value, 'JPY', signed)
@@ -27,9 +29,9 @@ function App() {
   const [page, setPage] = useState<Page>('overview')
   const [user, setUser] = useState<User | null>(null)
   const [authReady, setAuthReady] = useState(!firebaseConfigured)
-  const [sessions, setSessions] = useState<Session[]>(() => readLocal('riverlog-demo-sessions', sampleSessions))
-  const [players, setPlayers] = useState<Player[]>(() => readLocal('riverlog-demo-players', samplePlayers))
-  const [trips, setTrips] = useState<Trip[]>(() => readLocal('riverlog-demo-trips', sampleTrips))
+  const [sessions, setSessions] = useState<Session[]>(() => readLocalList('riverlog-demo-sessions'))
+  const [players, setPlayers] = useState<Player[]>(() => readLocalList('riverlog-demo-players'))
+  const [trips, setTrips] = useState<Trip[]>(() => readLocalList('riverlog-demo-trips'))
   const [rates, setRates] = useState<Partial<Record<Currency, Rate>>>({})
   const [sessionModal, setSessionModal] = useState<Session | 'new' | null>(null)
   const [sessionTrip, setSessionTrip] = useState<Trip | null>(null)
@@ -53,9 +55,9 @@ function App() {
   useEffect(() => { if (!firebaseConfigured) return; return watchUser(async next => {
     setUser(next); setAuthReady(true)
     if (next) {
-      try { const data = await loadRemote(next.uid); setSessions(data.sessions); setPlayers(data.players); setTrips(data.trips) }
+      try { const data = await loadRemote(next.uid); setSessions(data.sessions.filter(item => !item.id.startsWith('demo-'))); setPlayers(data.players.filter(item => !item.id.startsWith('demo-'))); setTrips(data.trips.filter(item => !item.id.startsWith('demo-'))) }
       catch { setNotice('データの読み込みに失敗しました。接続を確認してください。') }
-    } else { setSessions(readLocal('riverlog-demo-sessions', sampleSessions)); setPlayers(readLocal('riverlog-demo-players', samplePlayers)); setTrips(readLocal('riverlog-demo-trips', sampleTrips)) }
+    } else { setSessions(readLocalList('riverlog-demo-sessions')); setPlayers(readLocalList('riverlog-demo-players')); setTrips(readLocalList('riverlog-demo-trips')) }
   }) }, [])
   useEffect(() => { if (!user) localStorage.setItem('riverlog-demo-sessions', JSON.stringify(sessions)) }, [sessions, user])
   useEffect(() => { if (!user) localStorage.setItem('riverlog-demo-players', JSON.stringify(players)) }, [players, user])
@@ -78,12 +80,19 @@ function App() {
     setSessions(current => [session, ...current.filter(s => s.id !== session.id)])
     setSessionModal(null); setSessionTrip(null); setSessionDate(null); setSessionAction(null); setSelectedSession(null)
     if (user) try { await saveSessionRemote(user.uid, session) } catch { setSessions(previous); setNotice('保存に失敗しました。接続を確認してください。'); return }
-    else if (!successMessage) setNotice('端末内のデモデータに保存しました')
+    else if (!successMessage) setNotice('この端末に保存しました')
     if (successMessage) setNotice(successMessage)
   }
   const addMatchingRebuy = (session: Session) => {
     const updatedAt = new Date().toISOString()
     void saveSession({ ...session, rebuy: session.rebuy + session.buyIn, updatedAt }, `${money(session.buyIn, session.currency)} の${sessionFormat(session) === 'tournament' ? '再エントリー' : 'リバイ'}を追加しました`)
+  }
+  const updateSessionInPlace = async (session: Session, successMessage?: string) => {
+    const previous = sessions
+    setSessions(current => [session, ...current.filter(item => item.id !== session.id)])
+    setSelectedSession(session)
+    if (user) try { await saveSessionRemote(user.uid, session) } catch { setSessions(previous); setSelectedSession(previous.find(item => item.id === session.id) || null); setNotice('テーブルメモの保存に失敗しました'); return }
+    if (successMessage) setNotice(successMessage)
   }
   const removeSession = async (id: string) => {
     if (!window.confirm('このセッションを削除しますか？')) return
@@ -93,7 +102,12 @@ function App() {
   const savePlayer = async (player: Player) => {
     const previous = players; setPlayers(current => [player, ...current.filter(p => p.id !== player.id)]); setPlayerModal(null)
     if (user) try { await savePlayerRemote(user.uid, player) } catch { setPlayers(previous); setNotice('保存に失敗しました') }
-    else setNotice('端末内のデモデータに保存しました')
+    else setNotice('この端末に保存しました')
+  }
+  const saveTablePlayer = async (player: Player) => {
+    const previous = players
+    setPlayers(current => [player, ...current.filter(item => item.id !== player.id)])
+    if (user) try { await savePlayerRemote(user.uid, player) } catch { setPlayers(previous); setNotice('プレイヤーメモの保存に失敗しました') }
   }
   const removePlayer = async (id: string) => {
     if (!window.confirm('このプレイヤーメモを削除しますか？')) return
@@ -103,7 +117,7 @@ function App() {
   const saveTrip = async (trip: Trip, successMessage?: string) => {
     const previous = trips; setTrips(current => [trip, ...current.filter(item => item.id !== trip.id)])
     if (user) try { await saveTripRemote(user.uid, trip) } catch { setTrips(previous); setNotice('遠征の保存に失敗しました'); return }
-    setNotice(successMessage || (user ? '遠征を保存しました' : '端末内のデモデータに保存しました'))
+    setNotice(successMessage || (user ? '遠征を保存しました' : 'この端末に保存しました'))
   }
   const removeTrip = async (id: string) => {
     if (!window.confirm('この遠征と旅費を削除しますか？セッション記録は残ります。')) return
@@ -142,14 +156,14 @@ function App() {
       <div className="brand"><div className="brand-mark">R<span>●</span></div><div><strong>RIVERLOG</strong><small>POKER TRAVEL JOURNAL</small></div></div>
       <div className="workspace-label">WORKSPACE</div>
       <nav className="nav-list" aria-label="メインメニュー">{nav.map(item => <button key={item.page} className={`nav-item ${page === item.page ? 'active' : ''}`} onClick={() => navigate(item.page)}><item.icon size={19} strokeWidth={1.9} /><span>{item.label}</span>{page === item.page && <span className="nav-active-dot" />}</button>)}</nav>
-      <div className="sidebar-bottom"><div className="sidebar-rate"><div className="sidebar-rate-heading"><Globe2 size={16} /> TODAY'S RATE</div><div className="sidebar-rate-line"><strong>1 USD <span>=</span> {liveRate ? `¥${liveRate.rate.toFixed(2)}` : '—'}</strong></div><div className="sidebar-rate-line"><strong>100 KRW <span>=</span> {wonRate ? `¥${(wonRate.rate * 100).toFixed(2)}` : '—'}</strong></div><small>{liveRate || wonRate ? `${liveRate?.date || wonRate?.date} 基準 · 日次参考レート` : 'レートを取得中'}</small></div><div className="sidebar-footer">{user ? <button onClick={() => logout()}><LogOut size={15} /> ログアウト</button> : <span><ShieldCheck size={15} /> {firebaseConfigured ? '閲覧用デモ' : 'ローカルデモモード'}</span>}</div></div>
+      <div className="sidebar-bottom"><div className="sidebar-rate"><div className="sidebar-rate-heading"><Globe2 size={16} /> TODAY'S RATE</div><div className="sidebar-rate-line"><strong>1 USD <span>=</span> {liveRate ? `¥${liveRate.rate.toFixed(2)}` : '—'}</strong></div><div className="sidebar-rate-line"><strong>100 KRW <span>=</span> {wonRate ? `¥${(wonRate.rate * 100).toFixed(2)}` : '—'}</strong></div><small>{liveRate || wonRate ? `${liveRate?.date || wonRate?.date} 基準 · 日次参考レート` : 'レートを取得中'}</small></div><div className="sidebar-footer">{user ? <button onClick={() => logout()}><LogOut size={15} /> ログアウト</button> : <span><ShieldCheck size={15} /> ローカル利用中</span>}</div></div>
     </aside>
 
     <main className="main">
       <header className="topbar"><div className="topbar-left"><button className="icon-button menu-button" onClick={() => setSidebarOpen(true)} aria-label="メニューを開く"><Menu size={22} /></button><span className="breadcrumb">RIVERLOG</span><ChevronRight size={15} className="breadcrumb-chevron" /><strong>{title[page]}</strong></div><div className="topbar-right"><div className="live-pill"><span className="pulse" /> {navigator.onLine ? 'SYNC READY' : 'OFFLINE'}</div><div className="topbar-avatar">{user?.photoURL ? <img src={user.photoURL} alt="" /> : <UserRound size={17} />}</div></div></header>
       <div className="content">
         {notice && <div className="notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="閉じる"><X size={16} /></button></div>}
-        {!user && <div className={`demo-banner ${restrictedBrowser ? 'browser-warning' : ''}`}><div><ShieldCheck size={17} /><span>{restrictedBrowser ? `${restrictedBrowser === 'line' ? 'LINE' : restrictedBrowser === 'instagram' ? 'Instagram' : 'Facebook'}内ブラウザを検出しました。Googleログインは外部ブラウザから行えます。` : firebaseConfigured ? 'デモを表示中。Google でログインすると自分のデータを保存できます。' : 'デモモードです。Firebase 設定後、Google ログインとクラウド同期が使えます。'}</span></div>{firebaseConfigured && authReady && <button onClick={beginLogin}>{restrictedBrowser ? '開き方を見る' : 'Google でログイン'} <ArrowRight size={15} /></button>}</div>}
+        {!user && <div className={`demo-banner ${restrictedBrowser ? 'browser-warning' : ''}`}><div><ShieldCheck size={17} /><span>{restrictedBrowser ? `${restrictedBrowser === 'line' ? 'LINE' : restrictedBrowser === 'instagram' ? 'Instagram' : 'Facebook'}内ブラウザを検出しました。Googleログインは外部ブラウザから行えます。` : firebaseConfigured ? 'この端末に保存中。Google でログインするとクラウド同期できます。' : 'この端末に保存します。Firebase 設定後、Google ログインとクラウド同期が使えます。'}</span></div>{firebaseConfigured && authReady && <button onClick={beginLogin}>{restrictedBrowser ? '開き方を見る' : 'Google でログイン'} <ArrowRight size={15} /></button>}</div>}
 
         {page === 'overview' && <>
           <div className="page-heading"><div><div className="eyebrow">OVERVIEW / {new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'long' }).format(new Date())}</div><h1>おかえりなさい<span className="title-period">.</span></h1><p>プレーと収支を、旅の流れに沿って振り返る。</p></div><button className="primary-button" onClick={startOrOpenSession}>{active ? <Clock3 size={18} /> : <Plus size={18} />} {active ? '進行中を開く' : 'セッションを開始'}</button></div>
@@ -190,7 +204,7 @@ function App() {
 
         {page === 'players' && <><div className="page-heading"><div><div className="eyebrow">TABLE INTELLIGENCE</div><h1>プレイヤーメモ<span className="title-period">.</span></h1><p>次に同じ卓に座ったとき、思い出せるように。</p></div><button className="primary-button" onClick={() => setPlayerModal('new')}><Plus size={18} /> メモを追加</button></div><div className="filter-bar"><div className="search-box"><Search size={18} /><input placeholder="名前・会場・タグで検索" value={search} onChange={e => setSearch(e.target.value)} /></div><span>{players.length} 人のメモ</span></div><div className="player-grid">{players.filter(p => `${p.name} ${p.venue} ${p.tags.join(' ')} ${p.note}`.toLowerCase().includes(search.toLowerCase())).map(p => <button className="player-card" key={p.id} onClick={() => setPlayerModal(p)}><div className="player-card-top"><div className="player-avatar">{p.name.slice(0, 1).toUpperCase()}</div><MoreHorizontal size={21} /></div><h3>{p.name}</h3><p><Globe2 size={14} /> {p.venue || '会場未設定'}</p><div className="tags">{p.tags.map(tag => <span key={tag}>{tag}</span>)}</div><div className="player-note">{p.note || 'メモはまだありません'}</div><small>更新 {shortDate(p.updatedAt)}</small></button>)}{!players.length && <Empty message="プレイヤーメモがありません。" />}</div></>}
 
-        {page === 'settings' && <><div className="page-heading"><div><div className="eyebrow">PREFERENCES & DATA</div><h1>設定・データ<span className="title-period">.</span></h1><p>記録を自分の手元でも管理する。</p></div></div><div className="settings-grid"><section className="panel"><SectionHeading label="ACCOUNT" title="アカウント" /><div className="setting-row"><div className="setting-icon"><UserRound size={20} /></div><div><strong>{user?.displayName || 'デモモード'}</strong><small>{user?.email || 'この端末のブラウザにデータを保存中'}</small></div></div>{firebaseConfigured && !user && <button className="secondary-button wide" onClick={beginLogin}>Google でログイン <ArrowRight size={16} /></button>}{user && <button className="secondary-button wide" onClick={logout}>ログアウト <LogOut size={16} /></button>}</section><section className="panel"><SectionHeading label="YOUR DATA" title="データの持ち出し" /><p className="settings-description">セッション記録と遠征の費用明細を、それぞれ CSV で保存できます。</p><div className="export-buttons"><button className="secondary-button wide" onClick={exportCsv}><Download size={17} /> セッションCSV</button><button className="secondary-button wide" onClick={exportTripCsv}><Download size={17} /> 旅費CSV</button></div></section><section className="panel"><SectionHeading label="CURRENCY" title="為替データ" /><div className="setting-row"><div className="setting-icon"><Globe2 size={20} /></div><div><strong>Frankfurter 日次参考レート</strong><small>基準表示通貨: JPY · 実際の両替レートとは異なります</small></div></div><a className="text-link" href="https://frankfurter.dev/" target="_blank" rel="noreferrer">データ提供元を見る <ArrowRight size={15} /></a></section><section className="panel"><SectionHeading label="PRIVACY" title="プライバシー" /><div className="setting-row"><div className="setting-icon"><CloudOff size={20} /></div><div><strong>{user ? 'Firestore に保存' : 'この端末に保存'}</strong><small>プレイヤーメモと遠征費用は公開されません。画像の保存は行いません。</small></div></div></section></div></>}
+        {page === 'settings' && <><div className="page-heading"><div><div className="eyebrow">PREFERENCES & DATA</div><h1>設定・データ<span className="title-period">.</span></h1><p>記録を自分の手元でも管理する。</p></div></div><div className="settings-grid"><section className="panel"><SectionHeading label="ACCOUNT" title="アカウント" /><div className="setting-row"><div className="setting-icon"><UserRound size={20} /></div><div><strong>{user?.displayName || 'ローカル利用'}</strong><small>{user?.email || 'この端末のブラウザにデータを保存中'}</small></div></div>{firebaseConfigured && !user && <button className="secondary-button wide" onClick={beginLogin}>Google でログイン <ArrowRight size={16} /></button>}{user && <button className="secondary-button wide" onClick={logout}>ログアウト <LogOut size={16} /></button>}</section><section className="panel"><SectionHeading label="YOUR DATA" title="データの持ち出し" /><p className="settings-description">セッション記録と遠征の費用明細を、それぞれ CSV で保存できます。</p><div className="export-buttons"><button className="secondary-button wide" onClick={exportCsv}><Download size={17} /> セッションCSV</button><button className="secondary-button wide" onClick={exportTripCsv}><Download size={17} /> 旅費CSV</button></div></section><section className="panel"><SectionHeading label="CURRENCY" title="為替データ" /><div className="setting-row"><div className="setting-icon"><Globe2 size={20} /></div><div><strong>Frankfurter 日次参考レート</strong><small>基準表示通貨: JPY · 実際の両替レートとは異なります</small></div></div><a className="text-link" href="https://frankfurter.dev/" target="_blank" rel="noreferrer">データ提供元を見る <ArrowRight size={15} /></a></section><section className="panel"><SectionHeading label="PRIVACY" title="プライバシー" /><div className="setting-row"><div className="setting-icon"><CloudOff size={20} /></div><div><strong>{user ? 'Firestore に保存' : 'この端末に保存'}</strong><small>プレイヤーメモと遠征費用は公開されません。画像の保存は行いません。</small></div></div></section></div></>}
       </div>
     </main>
     <nav className="mobile-nav" aria-label="モバイルメニュー">{nav.slice(0, 5).map(item => <button key={item.page} className={page === item.page ? 'active' : ''} onClick={() => navigate(item.page)}><item.icon size={21} /><span>{item.page === 'overview' ? 'ホーム' : item.page === 'trips' ? '遠征' : item.page === 'analytics' ? '分析' : item.label}</span></button>)}</nav>
@@ -201,7 +215,7 @@ function App() {
     {playerModal && <PlayerForm initial={playerModal === 'new' ? undefined : playerModal} onClose={() => setPlayerModal(null)} onSave={savePlayer} onDelete={removePlayer} />}
     {calendarTripModal && <TripForm initial={'id' in calendarTripModal ? calendarTripModal : undefined} defaultDate={'date' in calendarTripModal ? calendarTripModal.date : undefined} onClose={() => setCalendarTripModal(null)} onSave={trip => { void saveTrip(trip, 'カレンダーに遠征を反映しました'); setCalendarTripModal(null) }} />}
     {browserHelp && <ExternalBrowserGuide browser={browserHelp} onClose={() => setBrowserHelp(null)} />}
-    {selectedSession && <SessionDetail session={selectedSession} currentRate={rates[selectedSession.currency]} now={now} onClose={() => setSelectedSession(null)} onEdit={() => { setSessionModal(selectedSession); setSelectedSession(null) }} onDelete={() => removeSession(selectedSession.id)} onQuickRebuy={() => addMatchingRebuy(selectedSession)} onCustomRebuy={() => { setSessionAction({ kind: 'rebuy', session: selectedSession }); setSelectedSession(null) }} onFinish={() => { setSessionAction({ kind: 'finish', session: selectedSession }); setSelectedSession(null) }} />}
+    {selectedSession && <SessionDetail session={selectedSession} players={players} currentRate={rates[selectedSession.currency]} now={now} onUpdateSession={(session, message) => void updateSessionInPlace(session, message)} onSavePlayer={player => void saveTablePlayer(player)} onClose={() => setSelectedSession(null)} onEdit={() => { setSessionModal(selectedSession); setSelectedSession(null) }} onDelete={() => removeSession(selectedSession.id)} onQuickRebuy={() => addMatchingRebuy(selectedSession)} onCustomRebuy={() => { setSessionAction({ kind: 'rebuy', session: selectedSession }); setSelectedSession(null) }} onFinish={() => { setSessionAction({ kind: 'finish', session: selectedSession }); setSelectedSession(null) }} />}
   </div>
 }
 
@@ -390,7 +404,7 @@ function PlayerForm({ initial, onClose, onSave, onDelete }: { initial?: Player; 
   return <div className="modal-backdrop" onMouseDown={onClose}><div className="modal compact" onMouseDown={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="プレイヤーメモ"><div className="modal-header"><div><div className="eyebrow">PLAYER NOTE</div><h2>{initial ? 'メモを編集' : 'プレイヤーメモ'}</h2></div><button className="icon-button" onClick={onClose} aria-label="閉じる"><X size={21} /></button></div><form onSubmit={e => { e.preventDefault(); if (!name.trim()) return; onSave({ id: initial?.id || crypto.randomUUID(), name: name.trim(), venue: venue.trim(), tags: tags.split(',').map(t => t.trim()).filter(Boolean), note: note.trim(), updatedAt: new Date().toISOString() }) }}><label className="field full">名前・仮名 <input required value={name} onChange={e => setName(e.target.value)} placeholder="例: 3番席の Michael" /></label><label className="field full">会場 <input value={venue} onChange={e => setVenue(e.target.value)} placeholder="例: Bellagio" /></label><label className="field full">タグ <input value={tags} onChange={e => setTags(e.target.value)} placeholder="タイト, 常連, アグレッシブ" /><small>カンマ区切りで入力</small></label><label className="field full">特徴・メモ <textarea rows={5} value={note} onChange={e => setNote(e.target.value)} placeholder="プレー傾向や次に覚えておきたいこと" /></label><div className="modal-actions">{initial && <button type="button" className="delete-button" onClick={() => onDelete(initial.id)}><Trash2 size={16} /> 削除</button>}<button className="primary-button" type="submit"><Check size={17} /> 保存する</button></div></form></div></div>
 }
 
-function SessionDetail({ session, currentRate, now, onClose, onEdit, onDelete, onQuickRebuy, onCustomRebuy, onFinish }: { session: Session; currentRate?: Rate; now: number; onClose: () => void; onEdit: () => void; onDelete: () => void; onQuickRebuy: () => void; onCustomRebuy: () => void; onFinish: () => void }) {
+function SessionDetail({ session, players, currentRate, now, onUpdateSession, onSavePlayer, onClose, onEdit, onDelete, onQuickRebuy, onCustomRebuy, onFinish }: { session: Session; players: Player[]; currentRate?: Rate; now: number; onUpdateSession: (session: Session, message?: string) => void; onSavePlayer: (player: Player) => void; onClose: () => void; onEdit: () => void; onDelete: () => void; onQuickRebuy: () => void; onCustomRebuy: () => void; onFinish: () => void }) {
   const tournament = sessionFormat(session) === 'tournament'
   const result = profit(session)
   const yen = asYen(result, session.currency, session.rate)
@@ -409,6 +423,7 @@ function SessionDetail({ session, currentRate, now, onClose, onEdit, onDelete, o
         <button className="live-command finish" onClick={onFinish}><span className="live-command-icon"><Check size={20} /></span><span><small>{tournament ? '獲得賞金を入力' : 'キャッシュアウトを入力'}</small><strong>{tournament ? 'トーナメントを終了' : 'セッションを終了'}</strong><em>収支を確定</em></span><ArrowRight size={18} /></button>
       </div>
       <div className="investment-breakdown"><div><span>{tournament ? '初回エントリー' : '初回バイイン'}</span><strong>{money(session.buyIn, session.currency)}</strong></div><div><span>{tournament ? '追加済み再エントリー' : '追加済みリバイ'}</span><strong>{money(session.rebuy, session.currency)}</strong></div></div>
+      {!tournament && <PokerTable session={session} savedPlayers={players} onChange={onUpdateSession} onSavePlayer={onSavePlayer} />}
     </> : <>
       <div className={`detail-result ${result < 0 ? 'loss' : ''}`}><small>{tournament ? `実収支${roi === null ? '' : ` · ROI ${(roi * 100).toFixed(1)}%`}` : '現地通貨の収支'}</small><strong>{money(result, session.currency, true)}</strong><span>記録時の参考円換算 {formatYen(yen, true)}</span></div>
       <div className="detail-list"><div><span>{tournament ? '初回エントリー' : '初回バイイン'}</span><strong>{money(session.buyIn, session.currency)}</strong></div><div><span>{tournament ? '再エントリー' : 'リバイ・追加購入'}</span><strong>{money(session.rebuy, session.currency)}</strong></div><div><span>{tournament ? '獲得賞金' : 'キャッシュアウト'}</span><strong>{money(session.cashOut, session.currency)}</strong></div><div><span>{tournament ? '追加費用' : 'チップ'}</span><strong>{money(session.tips, session.currency)}</strong></div><div><span>プレー時間</span><strong>{duration(session, now)}</strong></div></div>

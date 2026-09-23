@@ -15,6 +15,14 @@ service cloud.firestore {
         && d.tips is int && d.tips >= 0
         && (!('format' in d) || d.format in ['cash','tournament'])
         && (!('tripId' in d) || (d.tripId is string && d.tripId.size() <= 120))
+        && (!('table' in d) || (
+          d.table is map
+          && d.table.seatCount in [6,8,9]
+          && d.table.heroSeat is int && d.table.heroSeat >= 1 && d.table.heroSeat <= d.table.seatCount
+          && d.table.buttonSeat is int && d.table.buttonSeat >= 1 && d.table.buttonSeat <= d.table.seatCount
+          && d.table.handNumber is int && d.table.handNumber >= 1
+          && d.table.players is list && d.table.players.size() <= 9
+        ))
         && d.note is string && d.note.size() <= 4000;
     }
     function validPlayer(id) {
