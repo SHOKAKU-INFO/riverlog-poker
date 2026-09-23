@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { asYen, blindChoicesFor, calendarDayTotal, defaultPokerTable, fromMinor, money, nextPokerHand, profit, sessionRoi, sessionsForTrip, sessionsInTrip, tablePosition, toMinor, tripExpenseYen, tripNetYen, tripPokerYen, tripsForDate, type Session, type Trip } from './domain'
+import { activeTableSeats, asYen, blindChoicesFor, calendarDayTotal, defaultPokerTable, fromMinor, money, nextPokerHand, profit, sessionRoi, sessionsForTrip, sessionsInTrip, tablePosition, tablePositionFor, toMinor, tripExpenseYen, tripNetYen, tripPokerYen, tripsForDate, type Session, type Trip } from './domain'
 
 const base: Session = { id: 's1', venue: 'Test', location: 'Las Vegas', game: 'ライブ', stakes: '$1/$3', currency: 'USD', startedAt: '2026-09-01T00:00:00Z', endedAt: '2026-09-01T04:00:00Z', buyIn: 30000, rebuy: 10000, cashOut: 50000, tips: 1000, note: '', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T04:00:00Z' }
 describe('currency accounting', () => {
@@ -23,7 +23,7 @@ describe('currency accounting', () => {
     expect(sessionRoi(tournament)).toBe(1.5)
   })
   it('rotates the dealer button and every derived position for the next hand', () => {
-    const first = defaultPokerTable(9)
+    const first = { ...defaultPokerTable(9), players: [2, 3, 4, 5, 6, 7, 8, 9].map(seat => ({ seat, name: `P${seat}`, tags: [], note: '' })) }
     expect(tablePosition(1, first.buttonSeat, first.seatCount)).toBe('BTN')
     expect(tablePosition(2, first.buttonSeat, first.seatCount)).toBe('SB')
     expect(tablePosition(9, first.buttonSeat, first.seatCount)).toBe('CO')
@@ -32,6 +32,20 @@ describe('currency accounting', () => {
     expect(second.buttonSeat).toBe(2)
     expect(tablePosition(1, second.buttonSeat, second.seatCount)).toBe('CO')
     expect(tablePosition(2, second.buttonSeat, second.seatCount)).toBe('BTN')
+  })
+  it('skips empty seats and recalculates positions when players join or leave', () => {
+    const table = { ...defaultPokerTable(9), buttonSeat: 1, players: [
+      { seat: 3, name: 'A', tags: [], note: '' },
+      { seat: 6, name: 'B', tags: [], note: '' },
+      { seat: 8, name: 'C', tags: [], note: '' },
+    ] }
+    expect(activeTableSeats(table)).toEqual([1, 3, 6, 8])
+    expect(tablePositionFor(table, 1)).toBe('BTN')
+    expect(tablePositionFor(table, 3)).toBe('SB')
+    expect(tablePositionFor(table, 2)).toBe('')
+    expect(nextPokerHand(table).buttonSeat).toBe(3)
+    const afterLeaving = { ...table, buttonSeat: 3, players: table.players.filter(player => player.seat !== 3) }
+    expect(nextPokerHand(afterLeaving).buttonSeat).toBe(8)
   })
   it('calculates the true trip result from poker profit minus travel costs', () => {
     const trip: Trip = { id: 't1', name: 'Test trip', destination: 'Las Vegas', startDate: '2026-09-01', endDate: '2026-09-03', expenses: [{ id: 'e1', category: '宿泊', amount: 10000, currency: 'USD', spentAt: '2026-09-02', note: '', rate: { rate: 150, date: '2026-09-02', fetchedAt: '2026-09-02T10:00:00Z', provider: 'Test' } }], note: '', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-03T00:00:00Z' }
