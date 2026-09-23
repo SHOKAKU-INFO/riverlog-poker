@@ -26,7 +26,7 @@ export interface PokerAction { id: string; street: PokerStreet; seat: number; ty
 export interface HandPlayerSnapshot { seat: number; name: string; startingStackBb: number; endingStackBb: number }
 export interface PokerHandRecord {
   id: string; number: number; startedAt: string; endedAt: string; buttonSeat: number; players: HandPlayerSnapshot[]
-  actions: PokerAction[]; winnerSeats: number[]; potBb: number; rakeBb: number
+  actions: PokerAction[]; winnerSeats: number[]; potBb: number; rakeBb: number; heroCards?: string[]; board?: string[]
 }
 export type StraddleMode = 'none' | 'utg' | 'button'
 export interface PokerTableSettings { smallBlindBb: number; anteBb: number; rakePercent: number; rakeCapBb: number; straddleMode?: StraddleMode; straddleBb?: number }
@@ -154,7 +154,7 @@ export const unfoldedTableSeats = (table: PokerTableState, actions: PokerAction[
   const folded = new Set(actions.filter(action => action.type === 'fold').map(action => action.seat))
   return activeTableSeats(table).filter(seat => !folded.has(seat))
 }
-export const settlePokerHand = (table: PokerTableState, actions: PokerAction[], winnerSeats: number[], endedAt = new Date().toISOString()) => {
+export const settlePokerHand = (table: PokerTableState, actions: PokerAction[], winnerSeats: number[], endedAt = new Date().toISOString(), cards?: { heroCards: string[]; board: string[] }) => {
   const settings = table.settings || defaultTableSettings()
   const potBb = roundBb(actions.reduce((sum, action) => sum + action.amountBb, 0))
   const percentageRake = roundBb(potBb * settings.rakePercent / 100)
@@ -165,7 +165,7 @@ export const settlePokerHand = (table: PokerTableState, actions: PokerAction[], 
     id: crypto.randomUUID(), number: table.handNumber, startedAt: actions[0]?.createdAt || endedAt, endedAt,
     buttonSeat: effectiveButtonSeat(table),
     players: table.players.filter(player => player.stackBb !== undefined).map(player => ({ seat: player.seat, name: player.name, startingStackBb: player.stackBb as number, endingStackBb: players.find(item => item.seat === player.seat)?.stackBb as number })),
-    actions, winnerSeats, potBb, rakeBb,
+    actions, winnerSeats, potBb, rakeBb, heroCards: cards?.heroCards.filter(Boolean), board: cards?.board.filter(Boolean),
   }
   return { table: nextPokerHand({ ...table, players, hands: [...(table.hands || []), record] }), record }
 }
