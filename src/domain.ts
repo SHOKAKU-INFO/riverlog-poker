@@ -76,6 +76,13 @@ export const money = (minor: number, currency: Currency, signed = false) => {
 }
 export const dateLabel = (iso: string) => new Intl.DateTimeFormat('ja-JP', { month: 'long', day: 'numeric', weekday: 'short' }).format(new Date(iso))
 export const shortDate = (iso: string) => new Intl.DateTimeFormat('ja-JP', { month: 'numeric', day: 'numeric' }).format(new Date(iso))
+export const validSessionTimeRange = (startedAt: string, endedAt?: string) => {
+  const start = Date.parse(startedAt)
+  if (!Number.isFinite(start)) return false
+  if (!endedAt) return true
+  const end = Date.parse(endedAt)
+  return Number.isFinite(end) && end >= start
+}
 export const hours = (session: Session, now = Date.now()) => Math.max(0, ((session.endedAt ? new Date(session.endedAt).getTime() : now) - new Date(session.startedAt).getTime()) / 3_600_000)
 export const duration = (session: Session, now = Date.now()) => {
   const total = Math.floor(hours(session, now) * 60)

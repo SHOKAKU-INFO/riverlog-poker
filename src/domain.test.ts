@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activeTableSeats, asYen, blindChoicesFor, calendarDayTotal, currentStreetBet, defaultPokerTable, forcedPokerActions, fromMinor, money, movePokerSeat, nextPokerHand, profit, sessionRoi, sessionsForTrip, sessionsInTrip, settlePokerHand, streetContributionFor, tablePosition, tablePositionFor, toMinor, tripExpenseYen, tripNetYen, tripPokerYen, tripsForDate, unfoldedTableSeats, type PokerAction, type Session, type Trip } from './domain'
+import { activeTableSeats, asYen, blindChoicesFor, calendarDayTotal, currentStreetBet, defaultPokerTable, duration, forcedPokerActions, fromMinor, hours, money, movePokerSeat, nextPokerHand, profit, sessionRoi, sessionsForTrip, sessionsInTrip, settlePokerHand, streetContributionFor, tablePosition, tablePositionFor, toMinor, tripExpenseYen, tripNetYen, tripPokerYen, tripsForDate, unfoldedTableSeats, validSessionTimeRange, type PokerAction, type Session, type Trip } from './domain'
 
 const base: Session = { id: 's1', venue: 'Test', location: 'Las Vegas', game: 'ライブ', stakes: '$1/$3', currency: 'USD', startedAt: '2026-09-01T00:00:00Z', endedAt: '2026-09-01T04:00:00Z', buyIn: 30000, rebuy: 10000, cashOut: 50000, tips: 1000, note: '', createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T04:00:00Z' }
 describe('currency accounting', () => {
@@ -21,6 +21,13 @@ describe('currency accounting', () => {
   it('calculates actual tournament ROI from entries and winnings', () => {
     const tournament: Session = { ...base, format: 'tournament', buyIn: 10000, rebuy: 10000, cashOut: 50000, tips: 0 }
     expect(sessionRoi(tournament)).toBe(1.5)
+  })
+  it('recalculates play time after the end time is adjusted', () => {
+    const adjusted = { ...base, endedAt: '2026-09-01T05:30:00Z' }
+    expect(validSessionTimeRange(adjusted.startedAt, adjusted.endedAt)).toBe(true)
+    expect(validSessionTimeRange(adjusted.startedAt, '2026-08-31T23:59:00Z')).toBe(false)
+    expect(hours(adjusted)).toBe(5.5)
+    expect(duration(adjusted)).toBe('5時間30分')
   })
   it('rotates the dealer button and every derived position for the next hand', () => {
     const first = { ...defaultPokerTable(9), players: [2, 3, 4, 5, 6, 7, 8, 9].map(seat => ({ seat, name: `P${seat}`, tags: [], note: '' })) }

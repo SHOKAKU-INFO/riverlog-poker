@@ -9,6 +9,7 @@ service cloud.firestore {
         && d.currency in ['JPY','USD','EUR','GBP','HKD','KRW','PHP','VND','THB','TWD']
         && d.game in ['ライブ','オンライン']
         && d.startedAt is string && d.startedAt.size() <= 40
+        && (!('endedAt' in d) || (d.endedAt is string && d.endedAt.size() <= 40 && d.endedAt >= d.startedAt))
         && d.buyIn is int && d.buyIn >= 0
         && d.rebuy is int && d.rebuy >= 0
         && d.cashOut is int && d.cashOut >= 0
