@@ -33,10 +33,11 @@ export interface PokerTableSettings { smallBlindBb: number; anteBb: number; rake
 export interface PokerTableState {
   seatCount: TableSeatCount; heroSeat: number; buttonSeat: number; handNumber: number; players: TablePlayer[]; settings?: PokerTableSettings; hands?: PokerHandRecord[]
 }
+export interface SessionBreak { id: string; startedAt: string; endedAt?: string }
 export interface Session {
   id: string; venue: string; location: string; game: 'ライブ' | 'オンライン'; stakes: string; currency: Currency
   startedAt: string; localDate?: string; endedAt?: string; buyIn: number; rebuy: number; cashOut: number; tips: number
-  note: string; format?: 'cash' | 'tournament'; tripId?: string; rate?: Rate; table?: PokerTableState; createdAt: string; updatedAt: string
+  note: string; format?: 'cash' | 'tournament'; tripId?: string; rate?: Rate; breaks?: SessionBreak[]; table?: PokerTableState; createdAt: string; updatedAt: string
 }
 export interface Player { id: string; name: string; venue: string; tags: string[]; note: string; updatedAt: string }
 export type ExpenseCategory = '宿泊' | '食事' | '交通' | 'その他'
@@ -83,11 +84,25 @@ export const validSessionTimeRange = (startedAt: string, endedAt?: string) => {
   const end = Date.parse(endedAt)
   return Number.isFinite(end) && end >= start
 }
-export const hours = (session: Session, now = Date.now()) => Math.max(0, ((session.endedAt ? new Date(session.endedAt).getTime() : now) - new Date(session.startedAt).getTime()) / 3_600_000)
-export const duration = (session: Session, now = Date.now()) => {
-  const total = Math.floor(hours(session, now) * 60)
+export const activeSessionBreak = (session: Session) => [...(session.breaks || [])].reverse().find(item => !item.endedAt)
+export const breakMilliseconds = (session: Session, now = Date.now()) => {
+  const sessionStart = new Date(session.startedAt).getTime()
+  const sessionEnd = session.endedAt ? new Date(session.endedAt).getTime() : now
+  return (session.breaks || []).reduce((total, item) => {
+    const start = Math.max(sessionStart, new Date(item.startedAt).getTime())
+    const end = Math.min(sessionEnd, item.endedAt ? new Date(item.endedAt).getTime() : now)
+    return total + (Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : 0)
+  }, 0)
+}
+export const hours = (session: Session, now = Date.now()) => Math.max(0, (((session.endedAt ? new Date(session.endedAt).getTime() : now) - new Date(session.startedAt).getTime()) - breakMilliseconds(session, now)) / 3_600_000)
+const formattedDuration = (milliseconds: number) => {
+  const total = Math.floor(Math.max(0, milliseconds) / 60_000)
   return `${Math.floor(total / 60)}時間${String(total % 60).padStart(2, '0')}分`
 }
+export const duration = (session: Session, now = Date.now()) => {
+  return formattedDuration(hours(session, now) * 3_600_000)
+}
+export const breakDuration = (session: Session, now = Date.now()) => formattedDuration(breakMilliseconds(session, now))
 
 const tablePositions: Record<number, string[]> = {
   1: ['BTN'],

@@ -16,6 +16,7 @@ service cloud.firestore {
         && d.tips is int && d.tips >= 0
         && (!('format' in d) || d.format in ['cash','tournament'])
         && (!('tripId' in d) || (d.tripId is string && d.tripId.size() <= 120))
+        && (!('breaks' in d) || (d.breaks is list && d.breaks.size() <= 100))
         && (!('table' in d) || (
           d.table is map
           && d.table.seatCount in [6,8,9]
