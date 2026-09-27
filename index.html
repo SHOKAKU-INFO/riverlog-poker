@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#102b2c" />
+    <meta name="theme-color" content="#ffffff" />
     <meta name="description" content="海外ポーカー遠征の収支と卓上メモを、現地通貨と円で記録。" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
@@ -11,6 +11,7 @@
     <title>RIVERLOG | 海外ポーカー収支ノート</title>
   </head>
   <body>
+    <script>try{const saved=JSON.parse(localStorage.getItem('riverlog-theme'));const theme=saved==='light'||saved==='dark'?saved:matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.dataset.theme=theme;document.querySelector('meta[name="theme-color"]').content=theme==='dark'?'#0b1211':'#ffffff'}catch{}</script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
