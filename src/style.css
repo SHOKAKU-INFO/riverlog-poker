@@ -247,6 +247,7 @@ html[data-theme='dark'] .street-tabs button.active,html[data-theme='dark'] .acto
 html[data-theme='dark'] .modal-actions,html[data-theme='dark'] .form-divider,html[data-theme='dark'] .finish-time-field{border-color:#293733}
 
 @media(max-width:760px){.main::before{top:-120px;right:-170px;width:620px;height:300px;filter:blur(28px);opacity:.78}.content{padding-top:25px}.theme-toggle{width:32px;height:32px}}
+@media(max-width:900px){.active-session-priority .active-session-summary{display:block;width:100%;max-width:none;min-height:156px}.active-session-priority .active-session-heading,.active-session-priority .active-session-body,.active-session-priority .active-session-meta{width:100%}}
 @media(max-width:520px){.active-session-priority .active-session-summary{padding:18px}.active-session-body{align-items:start;margin-top:17px}.active-session-title{font-size:19px}.active-session-clock strong{font-size:25px}.active-session-meta{margin-top:14px}.dashboard-section-label{margin-top:-5px}.hero-card{min-height:222px}.theme-options{grid-template-columns:1fr}}
 
 /* Break state: warm light replaces the playing-state green glow. */
