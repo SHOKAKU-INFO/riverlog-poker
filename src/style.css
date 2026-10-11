@@ -275,3 +275,19 @@ html[data-theme='dark'] .standalone-table-session.on-break{background:#171613;bo
 .app-footer{margin-top:52px;padding-top:18px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;color:#7f928a;font-size:9px;font-weight:800;letter-spacing:.08em}.app-footer small{font-size:7px;letter-spacing:.16em;color:#a0aea8}
 html[data-theme='dark'] .app-footer{border-color:#25332f;color:#91a59d}html[data-theme='dark'] .app-footer small{color:#657970}
 @media(max-width:520px){.app-footer{margin-top:38px;padding-top:15px;display:block;text-align:center}.app-footer small{display:block;margin-top:6px}}
+
+/* Mobile dialogs own the viewport: the page and bottom navigation stay out of the way. */
+body:has(.modal-backdrop,.seat-editor-backdrop,.hand-recorder-backdrop){overflow:hidden}
+.modal-backdrop,.seat-editor-backdrop,.hand-recorder-backdrop{overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+@media(max-width:760px){
+  .app-shell:has(.modal-backdrop,.seat-editor-backdrop,.hand-recorder-backdrop) .mobile-nav{display:none}
+  .modal-backdrop{align-items:end;place-items:end center;padding:max(8px,env(safe-area-inset-top)) 0 0;overflow:hidden}
+  .modal{width:100%;max-width:100%;max-height:calc(100dvh - max(8px,env(safe-area-inset-top)));border-radius:20px 20px 0 0;padding:19px 16px max(16px,env(safe-area-inset-bottom));overflow-x:hidden;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+  .modal>*,.modal form{min-width:0}
+  .modal-actions,.seat-editor-actions,.hand-recorder-actions{position:sticky;z-index:4;bottom:0;background:var(--surface);box-shadow:0 -12px 20px var(--surface)}
+  .modal-actions{padding-bottom:max(4px,env(safe-area-inset-bottom))}
+  .seat-editor-backdrop,.hand-recorder-backdrop{overflow:hidden}
+  .seat-editor,.hand-recorder{max-height:calc(100dvh - max(5px,env(safe-area-inset-top)));overflow-x:hidden;overflow-y:auto;overscroll-behavior-y:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+  .seat-editor-actions,.hand-recorder-actions{padding-bottom:max(4px,env(safe-area-inset-bottom))}
+}
+html[data-theme='dark'] .modal-actions,html[data-theme='dark'] .seat-editor-actions,html[data-theme='dark'] .hand-recorder-actions{background:var(--surface);box-shadow:0 -12px 20px var(--surface)}
